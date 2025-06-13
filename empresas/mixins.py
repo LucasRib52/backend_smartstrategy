@@ -12,7 +12,7 @@ class EmpresaFilterMixin(mixins.ListModelMixin):
     
     def get_queryset(self):
         queryset = super().get_queryset()
-        empresa = self.request.user.empresa_atual
+        empresa = getattr(self.request, 'empresa', None)
         if not empresa:
             logger.warning(f"[MIXIN] Nenhuma empresa encontrada para o usuário {self.request.user.email}")
             return queryset.none()
@@ -22,7 +22,7 @@ class EmpresaFilterMixin(mixins.ListModelMixin):
         return qs
     
     def perform_create(self, serializer):
-        empresa = self.request.user.empresa_atual
+        empresa = getattr(self.request, 'empresa', None)
         logger.warning(f"[MIXIN] Criando registro com empresa: {empresa} (ID: {getattr(empresa, 'id', None)})")
         if not empresa:
             logger.error(f"[MIXIN] Tentativa de criar registro sem empresa para o usuário {self.request.user.email}")

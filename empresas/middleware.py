@@ -56,6 +56,7 @@ class EmpresaMiddleware(MiddlewareMixin):
                     empresa = Empresa.objects.get(id=empresa_id)
                     logger.info(f"[MIDDLEWARE] Empresa encontrada pelo ID do token: {empresa_id}")
                     request.empresa = empresa
+                    request.empresa_id = str(empresa.id)
                     return None
                 except Empresa.DoesNotExist:
                     logger.error(f"[MIDDLEWARE] Empresa não encontrada pelo ID do token: {empresa_id}")
@@ -66,6 +67,7 @@ class EmpresaMiddleware(MiddlewareMixin):
                     empresa = Empresa.objects.get(email_comercial=user.email)
                     logger.info(f"[MIDDLEWARE] Empresa PJ encontrada pelo email: {user.email}")
                     request.empresa = empresa
+                    request.empresa_id = str(empresa.id)
                     return None
                 except Empresa.DoesNotExist:
                     logger.error(f"[MIDDLEWARE] Empresa PJ não encontrada pelo email: {user.email}")

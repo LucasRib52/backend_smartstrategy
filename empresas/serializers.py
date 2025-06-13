@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from .models import Empresa, Endereco, Logomarca, Parametros, Responsavel
+from .models import Empresa, Endereco, Logomarca, Responsavel
 import re
 
 User = get_user_model()
@@ -53,26 +53,6 @@ class LogomarcaSerializer(serializers.ModelSerializer):
         
         return value
 
-class ParametrosSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Parametros
-        fields = '__all__'
-
-    def validate_cor_primaria(self, value):
-        if not re.match(r'^#[0-9A-Fa-f]{6}$', value):
-            raise serializers.ValidationError('Cor deve estar no formato hexadecimal (#RRGGBB)')
-        return value
-
-    def validate_cor_secundaria(self, value):
-        if not re.match(r'^#[0-9A-Fa-f]{6}$', value):
-            raise serializers.ValidationError('Cor deve estar no formato hexadecimal (#RRGGBB)')
-        return value
-
-    def validate_cor_terciaria(self, value):
-        if not re.match(r'^#[0-9A-Fa-f]{6}$', value):
-            raise serializers.ValidationError('Cor deve estar no formato hexadecimal (#RRGGBB)')
-        return value
-
 class ResponsavelSerializer(serializers.ModelSerializer):
     usuario = UserSerializer(read_only=True)
     usuario_id = serializers.PrimaryKeyRelatedField(
@@ -104,23 +84,50 @@ class ResponsavelSerializer(serializers.ModelSerializer):
 class EmpresaSerializer(serializers.ModelSerializer):
     endereco = EnderecoSerializer(read_only=True)
     logomarca = LogomarcaSerializer(read_only=True)
-    parametros = ParametrosSerializer(read_only=True)
     responsaveis = ResponsavelSerializer(many=True, read_only=True)
 
     class Meta:
         model = Empresa
         fields = [
             'id', 'tipo', 'nome_fantasia', 'sigla', 'cnpj', 'cpf', 'razao_social',
-            'inscricao_estadual', 'inscricao_municipal', 'registro_crmv_uf',
-            'registro_crmv_numero', 'email_comercial', 'telefone1', 'telefone2',
-            'telefone3', 'site', 'redes_sociais', 'horario_funcionamento',
-            'endereco', 'logomarca', 'parametros', 'responsaveis',
+            'inscricao_estadual', 'inscricao_municipal',
+            'email_comercial', 'telefone1', 'telefone2',
+            'site', 'redes_sociais', 'horario_funcionamento',
+            'endereco', 'logomarca', 'responsaveis',
             'created_at', 'updated_at'
         ]
+        extra_kwargs = {
+            'nome_fantasia': {
+                'required': False,
+                'allow_blank': True,
+                'allow_null': True,
+            }
+        }
+
+    def _is_valid_cnpj_digits(self, cnpj_num: str) -> bool:
+        """Valida dígitos verificadores do CNPJ (apenas números)."""
+        if len(cnpj_num) != 14 or len(set(cnpj_num)) == 1:
+            return False
+
+        def calc_dv(base, pesos):
+            soma = sum(int(d) * p for d, p in zip(base, pesos))
+            resto = soma % 11
+            return '0' if resto < 2 else str(11 - resto)
+
+        dv1 = calc_dv(cnpj_num[:12], [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2])
+        dv2 = calc_dv(cnpj_num[:13], [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2])
+        return cnpj_num[-2:] == dv1 + dv2
 
     def validate_cnpj(self, value):
-        if not re.match(r'^\d{14}$', value):
-            raise serializers.ValidationError('CNPJ deve conter 14 dígitos numéricos')
+        # Em atualização da empresa (self.instance existe), não travamos pelo CNPJ.
+        if self.instance:
+            return value
+
+        digits = re.sub(r'[^0-9]', '', value)
+
+        if not digits.isdigit() or len(digits) != 14 or not self._is_valid_cnpj_digits(digits):
+            raise serializers.ValidationError('CNPJ inválido (dígitos verificadores incorretos)')
+        
         return value
 
     def validate_telefone1(self, value):

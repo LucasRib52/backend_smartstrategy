@@ -10,6 +10,7 @@ from .serializers import ModuloPermissaoSerializer, UserPermissaoSerializer
 from django.contrib.auth import get_user_model
 import uuid
 import logging
+from django.http import Http404
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -39,9 +40,11 @@ class UserPermissaoViewSet(viewsets.ViewSet):
         Obtém o vínculo do usuário com a empresa atual usando o ID do vínculo
         """
         try:
-            # Verifica se o usuário tem uma empresa definida
-            if not hasattr(self.request.user, 'empresa_atual') or not self.request.user.empresa_atual:
-                logger.error(f"Usuário {self.request.user.email} não tem empresa definida")
+            # Descobre a empresa em contexto (middleware define request.empresa / empresa_id)
+            empresa_contexto = getattr(self.request, 'empresa', None) or getattr(self.request.user, 'empresa_atual', None)
+
+            if not empresa_contexto:
+                logger.error(f"Usuário {self.request.user.email} não tem empresa definida no contexto")
                 return Response(
                     {'error': 'Usuário não tem empresa definida'},
                     status=status.HTTP_401_UNAUTHORIZED
@@ -58,10 +61,10 @@ class UserPermissaoViewSet(viewsets.ViewSet):
                     link = get_object_or_404(
                         UserCompanyLink,
                         user_id=user_id,
-                        empresa=self.request.user.empresa_atual,
+                        empresa=empresa_contexto,
                         status='accepted'
                     )
-                    logger.info(f"Vínculo encontrado para usuário {user_id} na empresa {self.request.user.empresa_atual.id}")
+                    logger.info(f"Vínculo encontrado para usuário {user_id} na empresa {empresa_contexto.id}")
                     return link
                 except ValueError:
                     logger.error(f"ID inválido: {link_id}")
@@ -74,14 +77,20 @@ class UserPermissaoViewSet(viewsets.ViewSet):
             link = get_object_or_404(
                 UserCompanyLink,
                 id=link_id,
-                empresa=self.request.user.empresa_atual,
+                empresa=empresa_contexto,
                 status='accepted'
             )
-            logger.info(f"Vínculo encontrado com UUID {link_id} na empresa {self.request.user.empresa_atual.id}")
+            logger.info(f"Vínculo encontrado com UUID {link_id} na empresa {empresa_contexto.id}")
             return link
 
         except UserCompanyLink.DoesNotExist:
-            logger.error(f"Vínculo não encontrado para ID {link_id} na empresa {self.request.user.empresa_atual.id}")
+            logger.error(f"Vínculo não encontrado para ID {link_id} na empresa {empresa_contexto.id if empresa_contexto else 'N/A'}")
+            return Response(
+                {'error': 'Vínculo não encontrado'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Http404:
+            logger.error(f"Vínculo não encontrado (Http404) para ID {link_id} na empresa {empresa_contexto.id if empresa_contexto else 'N/A'}")
             return Response(
                 {'error': 'Vínculo não encontrado'},
                 status=status.HTTP_404_NOT_FOUND

@@ -112,6 +112,7 @@ class ConviteUsuarioViewSet(viewsets.ModelViewSet):
                 convites.append({
                     'id': str(link.id),
                     'empresa_nome': link.empresa.nome_fantasia if hasattr(link.empresa, 'nome_fantasia') else '',
+                    'empresa_razao_social': getattr(link.empresa, 'razao_social', ''),
                     'created_at': link.created_at,
                     'status': link.status,
                     'position': link.position,

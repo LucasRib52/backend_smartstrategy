@@ -26,11 +26,15 @@ class PermissaoMiddleware(MiddlewareMixin):
             '/api/usuarios/links/accept/',
             '/api/usuarios/links/reject/',
             '/api/selecionarperfilpf/',
+            '/api/empresa_pessoafisica/',
+            '/api/convite_notificacao/',
+            '/api/permissoes/',
+            '/api/dashboard/',
             '/admin/',
         ]
 
         # Se a URL é pública, permite o acesso sem verificar permissão
-        if request.path in urls_publicas:
+        if request.path in urls_publicas or any(request.path.startswith(url) for url in urls_publicas):
             logger.info(f"[PERMISSAO] URL {request.path} é pública")
             return None
 
@@ -47,9 +51,9 @@ class PermissaoMiddleware(MiddlewareMixin):
             logger.info(f"[PERMISSAO] Usuário PJ tem acesso total")
             return None
 
-        # Se o usuário não tiver empresa_atual definida, permite o acesso
-        if not hasattr(request.user, 'empresa_atual') or not request.user.empresa_atual:
-            logger.warning(f"[PERMISSAO] Usuário {request.user.email} não tem empresa atual")
+        # Se não tiver empresa definida no request, permite o acesso
+        if not hasattr(request, 'empresa') or not request.empresa:
+            logger.warning(f"[PERMISSAO] Usuário {request.user.email} não tem empresa definida no request")
             return None
 
         # Obtém o módulo da URL
@@ -70,7 +74,7 @@ class PermissaoMiddleware(MiddlewareMixin):
         try:
             user_link = UserCompanyLink.objects.get(
                 user=request.user,
-                empresa=request.user.empresa_atual,
+                empresa=request.empresa,
                 status='accepted'
             )
             
@@ -89,15 +93,17 @@ class PermissaoMiddleware(MiddlewareMixin):
             if not permissoes.get(modulo_codigo, False):
                 logger.warning(f"[PERMISSAO] Usuário {request.user.email} não tem permissão para módulo {modulo_codigo}")
                 return JsonResponse({
-                    'error': f'Você não tem permissão para acessar o módulo {modulo.nome}'
+                    'error': f'Você não tem permissão para acessar o módulo {modulo.nome}. Entre em contato com o administrador da empresa para solicitar acesso.',
+                    'status': 'permission_denied'
                 }, status=403)
 
             logger.info(f"[PERMISSAO] Usuário {request.user.email} tem permissão para módulo {modulo_codigo}")
 
         except UserCompanyLink.DoesNotExist:
-            logger.warning(f"[PERMISSAO] Vínculo não encontrado para usuário {request.user.email} e empresa {request.user.empresa_atual.id}")
+            logger.warning(f"[PERMISSAO] Vínculo não encontrado para usuário {request.user.email} e empresa {request.empresa.id}")
             return JsonResponse({
-                'error': 'Vínculo com a empresa não encontrado'
+                'error': 'Vínculo com a empresa não encontrado',
+                'status': 'link_not_found'
             }, status=403)
 
         return None
@@ -110,11 +116,11 @@ class PermissaoMiddleware(MiddlewareMixin):
         parts = path.strip('/').split('/')
         if len(parts) >= 2:
             modulo = parts[1].lower()
-            # Mapeamento especial para vendas e marketing
+            # Só verifica permissão para marketing e financeiro
             if modulo in ['vendas', 'marketing']:
                 return 'marketing'
             if modulo in ['financeiro']:
                 return 'financeiro'
-            # Adicione outros mapeamentos conforme necessário
-            return modulo
+            # Para outros módulos, retorna None (não precisa verificar permissão)
+            return None
         return None 

@@ -9,6 +9,7 @@ class ConviteUsuarioSerializer(serializers.ModelSerializer):
     Serializer para listar e criar convites
     """
     empresa_nome = serializers.CharField(source='empresa.nome_fantasia', read_only=True)
+    empresa_razao_social = serializers.CharField(source='empresa.razao_social', read_only=True)
     convidado_nome = serializers.CharField(source='convidado.get_full_name', read_only=True)
 
     class Meta:
@@ -18,6 +19,7 @@ class ConviteUsuarioSerializer(serializers.ModelSerializer):
             'email_convidado',
             'empresa',
             'empresa_nome',
+            'empresa_razao_social',
             'convidado',
             'convidado_nome',
             'status',

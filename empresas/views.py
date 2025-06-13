@@ -5,11 +5,14 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.shortcuts import get_object_or_404
 from django.core.exceptions import ValidationError
-from .models import Empresa, Endereco, Logomarca, Parametros, Responsavel
+from django.contrib.auth import get_user_model
+from .models import Empresa, Endereco, Logomarca, Responsavel
 from .serializers import (
     EmpresaSerializer, EnderecoSerializer, LogomarcaSerializer,
-    ParametrosSerializer, ResponsavelSerializer
+    ResponsavelSerializer
 )
+
+User = get_user_model()
 
 # Create your views here.
 
@@ -25,7 +28,17 @@ class EmpresaViewSet(viewsets.ModelViewSet):
 
     def create(self, request, *args, **kwargs):
         try:
-            return super().create(request, *args, **kwargs)
+            # Criar a empresa
+            response = super().create(request, *args, **kwargs)
+            
+            # Se a criação foi bem sucedida, atualiza a empresa_atual do usuário
+            if response.status_code == status.HTTP_201_CREATED:
+                empresa = Empresa.objects.get(id=response.data['id'])
+                user = request.user
+                user.empresa_atual = empresa
+                user.save()
+            
+            return response
         except ValidationError as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
@@ -113,24 +126,6 @@ class EmpresaViewSet(viewsets.ModelViewSet):
                     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
             return Response(serializer.data)
-        except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
-    @action(detail=True, methods=['get', 'put'])
-    def parametros(self, request, pk=None):
-        try:
-            empresa = self.get_object()
-            parametros, created = Parametros.objects.get_or_create(empresa=empresa)
-
-            if request.method == 'GET':
-                serializer = ParametrosSerializer(parametros)
-                return Response(serializer.data)
-
-            serializer = ParametrosSerializer(parametros, data=request.data)
-            if serializer.is_valid():
-                serializer.save()
-                return Response(serializer.data)
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 

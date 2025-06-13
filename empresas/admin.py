@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Empresa, Endereco, Logomarca, Parametros, Responsavel
+from .models import Empresa, Endereco, Logomarca, Responsavel
 
 @admin.register(Empresa)
 class EmpresaAdmin(admin.ModelAdmin):
@@ -17,12 +17,6 @@ class EnderecoAdmin(admin.ModelAdmin):
 class LogomarcaAdmin(admin.ModelAdmin):
     list_display = ('empresa', 'data_upload')
     search_fields = ('empresa__nome_fantasia',)
-
-@admin.register(Parametros)
-class ParametrosAdmin(admin.ModelAdmin):
-    list_display = ('empresa', 'fuso_horario', 'info_idade_cliente', 'arquivar_ficha_automatico')
-    search_fields = ('empresa__nome_fantasia',)
-    list_filter = ('fuso_horario', 'info_idade_cliente', 'arquivar_ficha_automatico')
 
 @admin.register(Responsavel)
 class ResponsavelAdmin(admin.ModelAdmin):
