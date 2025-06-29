@@ -128,11 +128,12 @@ class AdminDashboardAPIView(views.APIView):
         ).values('id').distinct().count()
         empresas_ativas_total = empresas_qs.filter(ativo=True).values('id').distinct().count()
 
-        # MRR (Monthly Recurring Revenue) otimizado
+        # MRR (Monthly Recurring Revenue) otimizado - CORRIGIDO
         from django.db.models import Sum, F
-        mrr_total = Assinatura.objects.filter(
-            inicio__gte=inicio_periodo
-        ).only('id').aggregate(total=Sum(F('plano__preco')))['total'] or 0
+        # Calcular receita total de TODOS os pagamentos, não apenas do período
+        receita_total = HistoricoPagamento.objects.filter(
+            tipo__in=['CRIACAO', 'EXTENSAO', 'REATIVACAO', 'TROCA_PLANO']
+        ).aggregate(total=Sum('valor_novo'))['total'] or 0
 
         # Calcular conversão (empresas pagas / total empresas)
         conversao = 0
@@ -177,23 +178,29 @@ class AdminDashboardAPIView(views.APIView):
                 'expiradas': expiradas
             })
 
-        # Receita mensal: últimos 12 meses, somando todos os pagamentos/renovações/criações de assinatura do mês
+        # Receita mensal: últimos 12 meses, somando todos os pagamentos/renovações/criações de assinatura do mês - CORRIGIDO
         receita_por_mes = []
         for i in range(11, -1, -1):
             mes_referencia = hoje - relativedelta(months=i)
             mes_inicio = mes_referencia.replace(day=1)
             mes_fim = (mes_inicio + relativedelta(months=1)) - relativedelta(days=1)
+            
+            # Melhorar consulta de pagamentos com select_related para otimização
             pagamentos_qs = HistoricoPagamento.objects.filter(
                 criado_em__date__gte=mes_inicio,
                 criado_em__date__lte=mes_fim,
                 tipo__in=['CRIACAO', 'EXTENSAO', 'REATIVACAO', 'TROCA_PLANO']
-            )
+            ).select_related('assinatura__plano', 'assinatura__empresa')
+            
+            # Calcular receita total do mês
             receita = pagamentos_qs.aggregate(total=Sum('valor_novo'))['total'] or 0
             novos = pagamentos_qs.count()
+            
             # Contagem por plano
             planos_count = {}
             for plano in Plano.objects.all():
                 planos_count[plano.nome] = pagamentos_qs.filter(assinatura__plano=plano).count()
+            
             receita_por_mes.append({
                 'month': mes_inicio.strftime('%b/%y').capitalize(),
                 'revenue': float(receita),
@@ -208,11 +215,14 @@ class AdminDashboardAPIView(views.APIView):
             'Expirada': empresas_expiradas or 0
         }
 
-        # Atividades recentes (empresas criadas + pagamentos/renovações)
+        # Atividades recentes (empresas criadas + pagamentos/renovações) - OTIMIZADO
         atividades_recentes = []
+        
         # --- Empresas criadas recentemente ---
-        empresas_ids = list(empresas_qs.values_list('id', flat=True).distinct()[:4])
-        empresas_recentes = Empresa.objects.filter(id__in=empresas_ids).order_by('-created_at')
+        # Separar a consulta para evitar conflitos com anotações
+        empresas_recentes_ids = list(empresas_qs.values_list('id', flat=True).distinct()[:4])
+        empresas_recentes = Empresa.objects.filter(id__in=empresas_recentes_ids).order_by('-created_at')
+        
         for empresa in empresas_recentes:
             tempo_atras = hoje - empresa.created_at
             if tempo_atras.days == 0:
@@ -237,7 +247,7 @@ class AdminDashboardAPIView(views.APIView):
         pagamentos_recentes = HistoricoPagamento.objects.filter(
             criado_em__gte=inicio_periodo,
             tipo__in=['CRIACAO', 'EXTENSAO', 'REATIVACAO', 'TROCA_PLANO']
-        ).select_related('assinatura__empresa').order_by('-criado_em')[:4]
+        ).select_related('assinatura__empresa', 'assinatura__plano').order_by('-criado_em')[:4]
 
         for pag in pagamentos_recentes:
             tempo_atras = hoje - pag.criado_em
@@ -278,7 +288,7 @@ class AdminDashboardAPIView(views.APIView):
                 'empresas_expiradas': empresas_expiradas,
                 'empresas_pf_total': empresas_pf_total,
                 'empresas_ativas_total': empresas_ativas_total,
-                'mrr_total': float(mrr_total),
+                'mrr_total': float(receita_total),  # Usar receita total real
                 'conversao': conversao
             },
             'charts': {
@@ -286,7 +296,7 @@ class AdminDashboardAPIView(views.APIView):
                 'status_distribution': status_distribution,
                 'receita_por_mes': receita_por_mes
             },
-            'activities': atividades_recentes,  # Limitar a 4 atividades reais
+            'activities': atividades_recentes,
             'filters': {
                 'period': period,
                 'status': status_filter,
@@ -1366,8 +1376,10 @@ class AssinaturaAdminViewSet(viewsets.ModelViewSet):
                 tipo='CRIACAO',
                 descricao=f'Nova assinatura criada por reativação do ciclo anterior (ID antigo: {assinatura_antiga.id})',
                 request=request,
+                plano_novo=plano,
                 data_inicio_nova=nova_assinatura.inicio,
                 data_fim_nova=nova_assinatura.fim,
+                valor_novo=plano.preco,  # VALOR DO NOVO PAGAMENTO
                 observacoes='Ciclo criado por reativação/renovação'
             )
 
@@ -1454,7 +1466,7 @@ class AssinaturaAdminViewSet(viewsets.ModelViewSet):
             # Cria nova assinatura com data atual
             agora = timezone.now()
             inicio_novo = agora
-            fim_novo = agora + relativedelta(days=novo_plano.duracao_dias)
+            fim_novo = agora + timezone.timedelta(days=novo_plano.duracao_dias)
             
             nova_assinatura = Assinatura.objects.create(
                 empresa=empresa,
@@ -1470,11 +1482,6 @@ class AssinaturaAdminViewSet(viewsets.ModelViewSet):
             empresa.ativo = True
             empresa.save(update_fields=['ativo'])
             
-            # Criar notificações
-            criar_notificacao_empresa_ativada(empresa, novo_plano.nome)
-            criar_notificacao_assinatura_criada(nova_assinatura)
-            criar_notificacao_pagamento_recebido(nova_assinatura, novo_plano.preco, "Novo pagamento")
-            
             # Registra histórico na assinatura antiga
             registrar_historico_pagamento(
                 assinatura=assinatura_antiga,
@@ -1484,6 +1491,24 @@ class AssinaturaAdminViewSet(viewsets.ModelViewSet):
                 data_fim_anterior=assinatura_antiga.fim,
                 observacoes='Expiração e criação de novo pagamento separado'
             )
+            
+            # Registra histórico na NOVA assinatura - CORRIGIDO
+            registrar_historico_pagamento(
+                assinatura=nova_assinatura,
+                tipo='CRIACAO',
+                descricao=f'Novo pagamento criado após expiração do plano anterior (ID antigo: {assinatura_antiga.id})',
+                request=request,
+                plano_novo=novo_plano,
+                data_inicio_nova=nova_assinatura.inicio,
+                data_fim_nova=nova_assinatura.fim,
+                valor_novo=novo_plano.preco,  # VALOR DO NOVO PAGAMENTO
+                observacoes='Ciclo criado por reativação/renovação'
+            )
+            
+            # Criar notificações
+            criar_notificacao_empresa_ativada(empresa, novo_plano.nome)
+            criar_notificacao_assinatura_criada(nova_assinatura)
+            criar_notificacao_pagamento_recebido(nova_assinatura, novo_plano.preco, "Novo pagamento")
             
             return Response({
                 'message': f'Novo pagamento criado com sucesso para {novo_plano.nome}',
