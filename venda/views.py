@@ -21,7 +21,11 @@ class VendaViewSet(EmpresaFilterMixin, viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['data', 'mes', 'ano', 'semana', 'vendas_google', 'vendas_instagram', 'vendas_facebook']
     search_fields = ['mes', 'ano', 'semana']
-    ordering_fields = ['data', 'fat_geral', 'invest_realizado']
+    ordering_fields = ['data', 'mes', 'ano', 'fat_geral', 'invest_realizado']
+    
+    def create(self, request, *args, **kwargs):
+        """Override do método create"""
+        return super().create(request, *args, **kwargs)
 
     @action(detail=False, methods=['get'])
     def dashboard(self, request):
@@ -285,3 +289,8 @@ class VendaViewSet(EmpresaFilterMixin, viewsets.ModelViewSet):
         )
         response['Content-Disposition'] = 'attachment; filename="vendas.xlsx"'
         return response
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
