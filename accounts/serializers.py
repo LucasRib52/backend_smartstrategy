@@ -102,9 +102,9 @@ class RegisterCompanySerializer(serializers.Serializer):
     trade_name = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     cnpj = serializers.CharField()
     state_registration = serializers.CharField(required=False, allow_blank=True)
-    municipal_registration = serializers.CharField()
+    municipal_registration = serializers.CharField(required=False, allow_blank=True)
     responsible_name = serializers.CharField()
-    phone1 = serializers.CharField()
+    phone1 = serializers.CharField(required=False, allow_blank=True)
     phone2 = serializers.CharField(required=False, allow_blank=True)
     website = serializers.URLField(required=False, allow_blank=True)
 
@@ -167,9 +167,9 @@ class RegisterCompanySerializer(serializers.Serializer):
                     trade_name=validated_data.get('trade_name', ''),
                     cnpj=validated_data['cnpj'],
                     state_registration=validated_data.get('state_registration', ''),
-                    municipal_registration=validated_data['municipal_registration'],
+                    municipal_registration=validated_data.get('municipal_registration', ''),
                     responsible_name=validated_data['responsible_name'],
-                    phone1=validated_data['phone1'],
+                    phone1=validated_data.get('phone1', ''),
                     phone2=validated_data.get('phone2', ''),
                     website=validated_data.get('website', '')
                 )
@@ -189,8 +189,8 @@ class RegisterCompanySerializer(serializers.Serializer):
                     'cnpj': validated_data['cnpj'],
                     'razao_social': validated_data['company_name'],
                     'inscricao_estadual': validated_data.get('state_registration', ''),
-                    'inscricao_municipal': validated_data['municipal_registration'],
-                    'telefone1': validated_data['phone1'],
+                    'inscricao_municipal': validated_data.get('municipal_registration', ''),
+                    'telefone1': validated_data.get('phone1', ''),
                     'telefone2': validated_data.get('phone2', ''),
                     'site': validated_data.get('website', '')
                 }
@@ -202,8 +202,8 @@ class RegisterCompanySerializer(serializers.Serializer):
                 empresa.cnpj = validated_data['cnpj']
                 empresa.razao_social = validated_data['company_name']
                 empresa.inscricao_estadual = validated_data.get('state_registration', '')
-                empresa.inscricao_municipal = validated_data['municipal_registration']
-                empresa.telefone1 = validated_data['phone1']
+                empresa.inscricao_municipal = validated_data.get('municipal_registration', '')
+                empresa.telefone1 = validated_data.get('phone1', '')
                 empresa.telefone2 = validated_data.get('phone2', '')
                 empresa.site = validated_data.get('website', '')
                 empresa.save()
