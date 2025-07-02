@@ -6,12 +6,14 @@ import os
 import json
 import base64
 import logging
-from datetime import datetime
-from typing import List, Dict, Any, Optional
+import unicodedata
+import re
+from datetime import datetime, timedelta
+from typing import List, Dict, Any, Optional, Tuple
 from pathlib import Path
 from io import BytesIO
 
-from openai import OpenAI
+import openai
 import pandas as pd
 import pdfplumber
 from PIL import Image
@@ -30,7 +32,17 @@ class AIMarketingAgent:
         if not self.api_key:
             raise ValueError("OpenAI API key é obrigatória")
         
-        self.client = OpenAI(api_key=self.api_key)
+        # Verifica compatibilidade entre versões da lib openai
+        if hasattr(openai, 'OpenAI'):
+            # Versão >= 1.0 (novo client)
+            self.client = openai.OpenAI(api_key=self.api_key)
+            self._use_new_client = True
+        else:
+            # Versão < 1.0 (client antigo)
+            openai.api_key = self.api_key
+            self.client = openai
+            self._use_new_client = False
+
         self.model = os.getenv('OPENAI_MODEL', 'gpt-4o-mini')
         
         # Campos esperados nos dados de marketing
@@ -109,8 +121,17 @@ class AIMarketingAgent:
             else:
                 df = pd.read_excel(file_path)
             
-            # Normaliza nomes das colunas
-            df.columns = [str(col).lower().strip().replace(' ', '_') for col in df.columns]
+            # -------------- Normaliza nomes das colunas --------------
+            def _normalize_column(col_name: str) -> str:
+                """Remove acentos, espaços extras e converte para snake_case minúsculo"""
+                if not isinstance(col_name, str):
+                    col_name = str(col_name)
+                # Remove acentos
+                col_name = unicodedata.normalize('NFKD', col_name).encode('ASCII', 'ignore').decode('ASCII')
+                # Espaços para underscore e lower
+                return col_name.lower().strip().replace(' ', '_')
+
+            df.columns = [_normalize_column(col) for col in df.columns]
             
             # Mapeia colunas comuns para os campos esperados
             column_mapping = {
@@ -133,22 +154,44 @@ class AIMarketingAgent:
                 'gasto': 'cost',
                 'conversoes': 'conversions',
                 'conversions': 'conversions',
-                'conv': 'conversions'
+                'conv': 'conversions',
+                # Sinônimos adicionais
+                'leads': 'clicks',
+                'investimento_realizado': 'cost',
+                'investimento': 'cost',
+                'invest': 'cost',
+                'cpc_med': 'cpc',
+                'custo_medio': 'cpc'
             }
             
             # Renomeia colunas
             df = df.rename(columns=column_mapping)
             
-            # Converte para lista de dicionários
-            records = df.to_dict('records')
+            # Remove linhas de totais ou vazias de campanha
+            if 'campaign_name' in df.columns:
+                mask_total = df['campaign_name'].astype(str).str.strip().str.lower().str.startswith(('total', 'conta', 'pesquisa'))
+                df = df[~mask_total]
+                df = df[df['campaign_name'].notna() & (df['campaign_name'].astype(str).str.strip() != '')]
             
-            # Processa cada registro com IA para melhorar a qualidade
+            # Decide se precisa de enriquecimento da IA
+            basic_cols = {'data', 'campaign_name'}
+            numeric_cols = {'clicks', 'impressions', 'cost', 'conversions'}
+            has_basic = basic_cols.issubset(set(df.columns))
+            has_metric = any(col in df.columns for col in numeric_cols)
+
+            records = df.to_dict('records')
+
+            if has_basic and has_metric:
+                # Já possui colunas essenciais – não precisa IA
+                return records
+
+            # Caso contrário, usa IA para enriquecer linha a linha
             processed_records = []
             for record in records:
                 processed = self._enhance_record_with_ai(record)
                 if processed:
                     processed_records.append(processed)
-            
+
             return processed_records
             
         except Exception as e:
@@ -214,17 +257,10 @@ class AIMarketingAgent:
             Retorne apenas o JSON válido:
             """
             
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": "Você é um assistente especializado em dados de marketing digital. Sempre retorne JSON válido."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.1,
-                max_tokens=500
-            )
-            
-            content = response.choices[0].message.content.strip()
+            content = self._chat_completion([
+                {"role": "system", "content": "Você é um assistente especializado em dados de marketing digital. Sempre retorne JSON válido."},
+                {"role": "user", "content": prompt}
+            ], max_tokens=500)
             logger.debug(f"[AI_ENHANCE] Resposta bruta: {content}")
 
             enhanced_record = self._safe_json_extract(content)
@@ -293,14 +329,7 @@ class AIMarketingAgent:
                     {"type": "text", "text": prompt}
                 ]
             
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                temperature=0.1,
-                max_tokens=2000
-            )
-            
-            content = response.choices[0].message.content.strip()
+            content = self._chat_completion(messages, temperature=0.1, max_tokens=2000)
             logger.debug(f"[AI_EXTRACT] Resposta bruta: {content}")
 
             data = self._safe_json_extract(content)
@@ -317,7 +346,7 @@ class AIMarketingAgent:
             return []
     
     def _validate_and_clean_data(self, data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Valida e limpa os dados extraídos"""
+        """Valida, limpa e consolida os dados extraídos."""
         cleaned_data = []
         
         for record in data:
@@ -325,21 +354,71 @@ class AIMarketingAgent:
                 cleaned_record = {}
                 
                 # Data
-                if 'data' in record:
-                    if isinstance(record['data'], str):
-                        # Tenta converter string para data
+                def _parse_date_str(date_str: str):
+                    """Suporta 'YYYY-MM-DD', 'DD/MM/YYYY', 'DD-MM-YYYY', '15 de junho de 2025',
+                    e intervalos '15 de junho de 2025 - 21 de junho de 2025' (usa a 1ª data)."""
+                    date_str = date_str.strip().lower()
+
+                    # Se intervalo, pega antes do hífen
+                    if ' - ' in date_str:
+                        date_str = date_str.split(' - ')[0].strip()
+                    if ' até ' in date_str:
+                        date_str = date_str.split(' até ')[0].strip()
+
+                    # ISO primeiro
+                    for fmt in ['%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y']:
                         try:
-                            date_obj = datetime.strptime(record['data'], '%Y-%m-%d')
-                            cleaned_record['data'] = date_obj.strftime('%Y-%m-%d')
+                            return datetime.strptime(date_str, fmt)
                         except ValueError:
+                            pass
+
+                    # "DD de mês de YYYY"
+                    m = re.match(r'^(\d{1,2}) de ([a-zçãâéêíóõôú]+) de (\d{4})$', date_str)
+                    if m:
+                        day = int(m.group(1))
+                        month_name = m.group(2)
+                        year = int(m.group(3))
+                        month_map = {
+                            'janeiro': 1, 'fevereiro': 2, 'marco': 3, 'março': 3,
+                            'abril': 4, 'maio': 5, 'junho': 6, 'julho': 7,
+                            'agosto': 8, 'setembro': 9, 'outubro': 10,
+                            'novembro': 11, 'dezembro': 12
+                        }
+                        month = month_map.get(month_name, 1)
+                        return datetime(year, month, day)
+                    return None
+
+                if 'data' in record and record['data'] not in [None, '', 'null']:
+                    if isinstance(record['data'], str):
+                        date_obj = _parse_date_str(record['data'])
+                        if date_obj:
+                            cleaned_record['data'] = date_obj.strftime('%Y-%m-%d')
+                        else:
                             cleaned_record['data'] = datetime.now().strftime('%Y-%m-%d')
+                    elif isinstance(record['data'], (int, float)):
+                        # Suporte a números seriais do Excel (base 1899-12-30)
+                        try:
+                            excel_base = datetime(1899, 12, 30)
+                            date_obj = excel_base + timedelta(days=int(record['data']))
+                            cleaned_record['data'] = date_obj.strftime('%Y-%m-%d')
+                        except Exception:
+                            cleaned_record['data'] = datetime.now().strftime('%Y-%m-%d')
+                    elif isinstance(record['data'], datetime):
+                        cleaned_record['data'] = record['data'].strftime('%Y-%m-%d')
                     else:
-                        cleaned_record['data'] = datetime.now().strftime('%Y-%m-%d')
+                        # Outros tipos (ex.: pandas.Timestamp)
+                        try:
+                            cleaned_record['data'] = str(record['data'])[:10]
+                        except Exception:
+                            cleaned_record['data'] = datetime.now().strftime('%Y-%m-%d')
                 else:
                     cleaned_record['data'] = datetime.now().strftime('%Y-%m-%d')
                 
                 # Campaign name
-                cleaned_record['campaign_name'] = str(record.get('campaign_name', 'Campanha Sem Nome')).strip()
+                campaign_name_val = str(record.get('campaign_name', 'Campanha Sem Nome')).strip()
+                if campaign_name_val.lower().startswith(('total', 'conta', 'pesquisa')):
+                    continue
+                cleaned_record['campaign_name'] = campaign_name_val
                 
                 # Platform
                 platform = str(record.get('platform', 'other')).lower().strip()
@@ -363,10 +442,36 @@ class AIMarketingAgent:
                     except Exception:
                         return 0.0
 
+                # -------------------------
+                # Mapeia sinônimos se o campo principal não existir
+                synonyms_map = {
+                    'clicks': ['cliques', 'leads'],
+                    'impressions': ['impressoes', 'impr', 'impr.'],
+                    'cost': ['custo', 'investimento_realizado', 'investimento', 'invest'],
+                    'conversions': ['conversoes', 'conversoes', 'conversoes_', 'conversao', 'conversoes.', 'conversoe_s']
+                }
+
+                for primary, synonyms in synonyms_map.items():
+                    if primary not in record or record.get(primary) in [None, '', 'null', 0]:
+                        for syn in synonyms:
+                            if syn in record and record[syn] not in [None, '', 'null']:
+                                record[primary] = record[syn]
+                                break
+
                 cleaned_record['clicks'] = to_int(record.get('clicks', 0))
                 cleaned_record['impressions'] = to_int(record.get('impressions', 0))
                 cleaned_record['cost'] = to_float(record.get('cost', 0))
                 cleaned_record['conversions'] = to_int(record.get('conversions', 0))
+                
+                # ------------------------- NOVO: descarta linhas sem métricas -------------------------
+                if (
+                    cleaned_record['clicks'] == 0 and
+                    cleaned_record['impressions'] == 0 and
+                    cleaned_record['cost'] == 0 and
+                    cleaned_record['conversions'] == 0
+                ):
+                    # Nenhuma métrica relevante – ignora
+                    continue
                 
                 cleaned_data.append(cleaned_record)
                 
@@ -374,7 +479,8 @@ class AIMarketingAgent:
                 logger.warning(f"Erro ao limpar registro: {record} - {str(e)}")
                 continue
         
-        return cleaned_data 
+        # Não consolida duplicados aqui — isso será feito apenas na hora de salvar no banco
+        return cleaned_data
 
     def _safe_json_extract(self, content: str) -> Optional[Any]:
         """Tenta extrair JSON de um texto de maneira robusta."""
@@ -408,3 +514,26 @@ class AIMarketingAgent:
         except Exception as e:
             logger.debug(f"[SAFE_JSON] Falha ao extrair JSON: {str(e)}")
         return None 
+
+    # ---------------------------------------------------------------------
+    # Helpers
+    # ---------------------------------------------------------------------
+
+    def _chat_completion(self, messages, temperature=0.1, max_tokens=500):
+        """Abstrai diferença entre openai<1 e >=1"""
+        if self._use_new_client:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens
+            )
+            return response.choices[0].message.content.strip()
+        else:
+            response = self.client.ChatCompletion.create(
+                model=self.model,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens
+            )
+            return response["choices"][0]["message"]["content"].strip() 

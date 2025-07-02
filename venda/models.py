@@ -95,7 +95,11 @@ class Venda(models.Model):
     def save(self, *args, **kwargs):
         # Atualiza os campos temporais (mês, ano, semana) com base na data informada
         if self.data:
-            self.mes = self.data.strftime('%B')      # Exemplo: "January", "Fevereiro", etc.
+            month_pt = {
+                1: 'Janeiro', 2: 'Fevereiro', 3: 'Março', 4: 'Abril', 5: 'Maio', 6: 'Junho',
+                7: 'Julho', 8: 'Agosto', 9: 'Setembro', 10: 'Outubro', 11: 'Novembro', 12: 'Dezembro'
+            }
+            self.mes = month_pt.get(self.data.month, self.data.month)
             self.ano = self.data.year                 # Ano extraído da data
             self.semana = str(self.data.isocalendar().week)  # Número da semana no ano
         

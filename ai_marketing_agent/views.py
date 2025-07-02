@@ -11,6 +11,8 @@ from rest_framework import status, viewsets, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser
+from decimal import Decimal
+from typing import Dict, Tuple, Any, Optional
 
 from .models import MarketingData, FileUpload
 from .serializers import (
@@ -157,6 +159,7 @@ class FileUploadViewSet(viewsets.ModelViewSet):
         try:
             preview_only_raw = request.data.get('preview_only', 'false')
             preview_only = str(preview_only_raw).lower() in ['true', '1', 'yes']
+            forced_platform = request.data.get('forced_platform')
             # Cria o upload
             serializer = FileUploadCreateSerializer(data=request.data, context={'request': request})
             if not serializer.is_valid():
@@ -165,7 +168,7 @@ class FileUploadViewSet(viewsets.ModelViewSet):
             file_upload = serializer.save()
             
             # Processa imediatamente
-            result = self._process_file_with_ai(file_upload, save=not preview_only)
+            result = self._process_file_with_ai(file_upload, save=not preview_only, forced_platform=forced_platform)
             
             return Response(result)
             
@@ -176,7 +179,7 @@ class FileUploadViewSet(viewsets.ModelViewSet):
                 'message': f'Erro no upload e processamento: {str(e)}'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
-    def _process_file_with_ai(self, file_upload: FileUpload, save: bool = True) -> dict:
+    def _process_file_with_ai(self, file_upload: FileUpload, save: bool = True, forced_platform: Optional[str] = None) -> dict:
         """Processa arquivo usando o agente de IA"""
         try:
             # Inicializa o agente de IA (ele próprio pega a chave do settings ou variável de ambiente)
@@ -193,13 +196,36 @@ class FileUploadViewSet(viewsets.ModelViewSet):
                 empresa_id=empresa_id
             )
             
+            # Se forçada plataforma, valida e/ou aplica override
+            if forced_platform:
+                forced_platform = forced_platform.lower()
+                valid_pf = ['google', 'facebook', 'instagram']
+                if forced_platform not in valid_pf:
+                    forced_platform = None
+
+            if forced_platform:
+                # Se qualquer registro já indicar plataforma diferente de forced_platform (e não 'other') lançamos erro.
+                mismatches = [rec for rec in result.get('data', []) if rec.get('platform') not in [forced_platform, 'other', None]]
+                if mismatches:
+                    return {
+                        'success': False,
+                        'message': f'Arquivo parece pertencer a outra plataforma (detectado "{mismatches[0].get("platform")}"). Use o painel correto.',
+                        'records_processed': 0,
+                        'records_created': 0,
+                        'records_updated': 0
+                    }
+                # Override plataforma para todos os registros
+                for rec in result['data']:
+                    rec['platform'] = forced_platform
+            
             if result['success'] and save:
                 # Salva os dados no banco
                 saved_data = self._save_processed_data(
                     result['data'], 
                     file_upload.user, 
                     file_upload.empresa,
-                    file_upload.file_name
+                    file_upload.file_name,
+                    forced_platform=forced_platform
                 )
                 
                 # Atualiza status do upload
@@ -252,12 +278,34 @@ class FileUploadViewSet(viewsets.ModelViewSet):
             raise
     
     @transaction.atomic
-    def _save_processed_data(self, data: list, user, empresa, source_file: str) -> dict:
+    def _save_processed_data(self, data: list, user, empresa, source_file: str, forced_platform: Optional[str] = None) -> dict:
         """Salva dados processados no banco"""
         created_count = 0
         updated_count = 0
         
-        for record in data:
+        # ------------------------------------------------------------------
+        # 1) Consolida registros duplicados antes de persistir
+        # ------------------------------------------------------------------
+        aggregated: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
+        for rec in data:
+            # Força plataforma se necessário
+            if forced_platform:
+                rec = rec.copy()
+                rec['platform'] = forced_platform
+            key = (rec['data'], rec['campaign_name'], rec['platform'])
+            if key not in aggregated:
+                aggregated[key] = rec.copy()
+            else:
+                # Soma métricas numéricas
+                for field in ['clicks', 'impressions', 'conversions']:
+                    aggregated[key][field] = (aggregated[key].get(field, 0) or 0) + (rec.get(field, 0) or 0)
+                # Custo (float/decimal)
+                aggregated[key]['cost'] = (aggregated[key].get('cost', 0) or 0) + (rec.get('cost', 0) or 0)
+
+        # ------------------------------------------------------------------
+        # 2) Salva cada registro consolidado
+        # ------------------------------------------------------------------
+        for record in aggregated.values():
             try:
                 # Converte string de data para objeto date
                 if isinstance(record['data'], str):
@@ -272,10 +320,32 @@ class FileUploadViewSet(viewsets.ModelViewSet):
                 ).first()
                 
                 if existing:
-                    # Atualiza registro existente
+                    # Atualiza registro existente - soma métricas numéricas quando aplicável
+                    numeric_fields = ['clicks', 'impressions', 'conversions', 'leads', 'conversoes']
+                    monetary_fields = ['cost', 'invest_realizado']
                     for field, value in record.items():
-                        if hasattr(existing, field):
-                            setattr(existing, field, value)
+                        if not hasattr(existing, field):
+                            continue
+
+                        current_val = getattr(existing, field)
+
+                        # Soma valores para métricas numéricas
+                        if field in numeric_fields:
+                            try:
+                                value_int = int(float(value)) if value is not None else 0
+                                setattr(existing, field, (current_val or 0) + value_int)
+                            except Exception:
+                                setattr(existing, field, value)
+                        elif field in monetary_fields:
+                            try:
+                                value_dec = Decimal(str(value)) if value is not None else Decimal('0')
+                                setattr(existing, field, (current_val or Decimal('0')) + value_dec)
+                            except Exception:
+                                setattr(existing, field, value)
+                        else:
+                            # Para outros campos (strings, datas), mantém o valor existente se já preenchido
+                            if not current_val:
+                                setattr(existing, field, value)
                     existing.source_file = source_file
                     existing.save()
                     updated_count += 1
@@ -299,36 +369,41 @@ class FileUploadViewSet(viewsets.ModelViewSet):
                 week_number = str(iso_calendar.week)
                 year_number = iso_calendar.year
 
+                # Segunda-feira da semana ISO usando fromisocalendar (evita erros de fuso e week start)
+                try:
+                    week_monday = date.fromisocalendar(year_number, int(week_number), 1)
+                except Exception:
+                    week_monday = date_obj - timedelta(days=date_obj.weekday())
+
+                from decimal import Decimal as _Dec
                 venda_defaults = {
-                    'data': date_obj - timedelta(days=date_obj.weekday()),  # define como segunda-feira da semana
-                    'invest_realizado': record.get('cost', 0) or 0,
-                    'invest_projetado': record.get('cost', 0) or 0,
-                    'vendas_google': record.get('cost', 0) or 0,
-                    'vendas_instagram': 0,
-                    'vendas_facebook': 0,
-                    'fat_proj': 0,
-                    'fat_camp_realizado': 0,
-                    'fat_geral': 0,
-                    'leads': record.get('clicks', 0) or 0,
-                    'clientes_novos': record.get('conversions', 0) or 0,
-                    'clientes_recorrentes': 0,
-                    'conversoes': record.get('conversions', 0) or 0,
-                    'ticket_medio_realizado': 0,
+                    'data': date_obj,
+                    'invest_realizado': _Dec(str(record.get('cost', 0) or 0)),
+                    'leads': int(record.get('clicks', 0) or 0),
+                    'conversoes': int(record.get('conversions', 0) or 0),
+                    'plataforma': forced_platform if forced_platform else 'google',
                 }
 
                 venda_obj, created_flag = Venda.objects.get_or_create(
                     empresa=empresa,
                     ano=year_number,
                     semana=week_number,
+                    plataforma=venda_defaults['plataforma'],
                     defaults=venda_defaults
                 )
 
                 if not created_flag:
-                    # Soma métricas
+                    # Soma métricas apenas para campos definidos em venda_defaults
                     for key, value in venda_defaults.items():
-                        if isinstance(value, (int, float)):
-                            atual = getattr(venda_obj, key, 0) or 0
-                            setattr(venda_obj, key, atual + value)
+                        if key == 'data':
+                            # Mantém a menor data registrada na semana
+                            if venda_obj.data > date_obj:
+                                venda_obj.data = date_obj
+                            continue
+                        atual = getattr(venda_obj, key, 0) or 0
+                        if isinstance(atual, _Dec):
+                            value = _Dec(str(value)) if not isinstance(value, _Dec) else value
+                        setattr(venda_obj, key, atual + value)
                     venda_obj.save()
 
             except Exception as e:
