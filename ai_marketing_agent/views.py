@@ -279,12 +279,19 @@ class FileUploadViewSet(viewsets.ModelViewSet):
     
     @transaction.atomic
     def _save_processed_data(self, data: list, user, empresa, source_file: str, forced_platform: Optional[str] = None) -> dict:
-        """Salva dados processados no banco"""
+        """Salva dados processados no banco
+        - Cria/atualiza registros de MarketingData
+        - Consolida campanhas que pertençam à mesma semana em um único registro de Venda,
+          somando seus valores de investimento, leads e conversões.
+        """
         created_count = 0
         updated_count = 0
-        
+
+        from decimal import Decimal as _Dec  # Import local para uso interno
+        from datetime import date, datetime, timedelta  # Garantir que o escopo local tenha date/datetime
+
         # ------------------------------------------------------------------
-        # 1) Consolida registros duplicados antes de persistir
+        # 1) Consolida registros duplicados (mesma data + campanha + plataforma)
         # ------------------------------------------------------------------
         aggregated: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
         for rec in data:
@@ -299,37 +306,65 @@ class FileUploadViewSet(viewsets.ModelViewSet):
                 # Soma métricas numéricas
                 for field in ['clicks', 'impressions', 'conversions']:
                     aggregated[key][field] = (aggregated[key].get(field, 0) or 0) + (rec.get(field, 0) or 0)
-                # Custo (float/decimal)
+                # Custo
                 aggregated[key]['cost'] = (aggregated[key].get('cost', 0) or 0) + (rec.get('cost', 0) or 0)
 
         # ------------------------------------------------------------------
-        # 2) Salva cada registro consolidado
+        # 2) Salva MarketingData e acumula totais semanais para Venda
         # ------------------------------------------------------------------
+        weekly_totals: Dict[Tuple[int, int, str], Dict[str, Any]] = {}
+
         for record in aggregated.values():
             try:
-                # Converte string de data para objeto date
+                # --- Conversão de data e cálculo de semana ---
                 if isinstance(record['data'], str):
                     record['data'] = datetime.strptime(record['data'], '%Y-%m-%d').date()
-                
-                # Tenta encontrar registro existente
+
+                date_obj: date = record['data']
+                iso_calendar = date_obj.isocalendar()
+                year_number = iso_calendar[0] if isinstance(iso_calendar, tuple) else iso_calendar.year
+                week_number = iso_calendar[1] if isinstance(iso_calendar, tuple) else iso_calendar.week
+
+                plataforma_reg = forced_platform if forced_platform else (record.get('platform') or 'google')
+
+                # ----- Atualiza/acumula weekly_totals -----
+                week_key = (year_number, week_number, plataforma_reg)
+                wt = weekly_totals.setdefault(
+                    week_key,
+                    {
+                        'data': date_obj,
+                        'invest_realizado': _Dec('0'),
+                        'leads': 0,
+                        'conversoes': 0,
+                    }
+                )
+
+                # Menor data da semana
+                if date_obj < wt['data']:
+                    wt['data'] = date_obj
+                # Soma métricas
+                wt['invest_realizado'] += _Dec(str(record.get('cost', 0) or 0))
+                wt['leads'] += int(record.get('clicks', 0) or 0)
+                wt['conversoes'] += int(record.get('conversions', 0) or 0)
+
+                # ----- MarketingData: cria ou atualiza -----
                 existing = MarketingData.objects.filter(
                     data=record['data'],
                     campaign_name=record['campaign_name'],
                     platform=record['platform'],
                     empresa=empresa
                 ).first()
-                
+
                 if existing:
-                    # Atualiza registro existente - soma métricas numéricas quando aplicável
-                    numeric_fields = ['clicks', 'impressions', 'conversions', 'leads', 'conversoes']
-                    monetary_fields = ['cost', 'invest_realizado']
+                    # Atualiza registro existente somando métricas
+                    numeric_fields = ['clicks', 'impressions', 'conversions']
+                    monetary_fields = ['cost']
+
                     for field, value in record.items():
                         if not hasattr(existing, field):
                             continue
-
                         current_val = getattr(existing, field)
 
-                        # Soma valores para métricas numéricas
                         if field in numeric_fields:
                             try:
                                 value_int = int(float(value)) if value is not None else 0
@@ -338,19 +373,17 @@ class FileUploadViewSet(viewsets.ModelViewSet):
                                 setattr(existing, field, value)
                         elif field in monetary_fields:
                             try:
-                                value_dec = Decimal(str(value)) if value is not None else Decimal('0')
-                                setattr(existing, field, (current_val or Decimal('0')) + value_dec)
+                                value_dec = _Dec(str(value)) if value is not None else _Dec('0')
+                                setattr(existing, field, (current_val or _Dec('0')) + value_dec)
                             except Exception:
                                 setattr(existing, field, value)
                         else:
-                            # Para outros campos (strings, datas), mantém o valor existente se já preenchido
                             if not current_val:
                                 setattr(existing, field, value)
                     existing.source_file = source_file
                     existing.save()
                     updated_count += 1
                 else:
-                    # Cria novo registro
                     MarketingData.objects.create(
                         user=user,
                         empresa=empresa,
@@ -358,58 +391,39 @@ class FileUploadViewSet(viewsets.ModelViewSet):
                         **record
                     )
                     created_count += 1
-                    
-                # ---- Agrupa por semana (ano + semana ISO) ----
-                try:
-                    date_obj = record['data'] if isinstance(record['data'], date) else datetime.strptime(record['data'], '%Y-%m-%d').date()
-                except Exception:
-                    date_obj = datetime.now().date()
-
-                iso_calendar = date_obj.isocalendar()
-                week_number = str(iso_calendar.week)
-                year_number = iso_calendar.year
-
-                # Segunda-feira da semana ISO usando fromisocalendar (evita erros de fuso e week start)
-                try:
-                    week_monday = date.fromisocalendar(year_number, int(week_number), 1)
-                except Exception:
-                    week_monday = date_obj - timedelta(days=date_obj.weekday())
-
-                from decimal import Decimal as _Dec
-                venda_defaults = {
-                    'data': date_obj,
-                    'invest_realizado': _Dec(str(record.get('cost', 0) or 0)),
-                    'leads': int(record.get('clicks', 0) or 0),
-                    'conversoes': int(record.get('conversions', 0) or 0),
-                    'plataforma': forced_platform if forced_platform else 'google',
-                }
-
-                venda_obj, created_flag = Venda.objects.get_or_create(
-                    empresa=empresa,
-                    ano=year_number,
-                    semana=week_number,
-                    plataforma=venda_defaults['plataforma'],
-                    defaults=venda_defaults
-                )
-
-                if not created_flag:
-                    # Soma métricas apenas para campos definidos em venda_defaults
-                    for key, value in venda_defaults.items():
-                        if key == 'data':
-                            # Mantém a menor data registrada na semana
-                            if venda_obj.data > date_obj:
-                                venda_obj.data = date_obj
-                            continue
-                        atual = getattr(venda_obj, key, 0) or 0
-                        if isinstance(atual, _Dec):
-                            value = _Dec(str(value)) if not isinstance(value, _Dec) else value
-                        setattr(venda_obj, key, atual + value)
-                    venda_obj.save()
 
             except Exception as e:
                 logger.error(f"Erro ao salvar registro: {record} - {str(e)}")
                 continue
-        
+
+        # ------------------------------------------------------------------
+        # 3) Persiste/atualiza objetos Venda consolidados por semana
+        # ------------------------------------------------------------------
+        for (year_number, week_number, plataforma_reg), totals in weekly_totals.items():
+            venda_obj, created_flag = Venda.objects.get_or_create(
+                empresa=empresa,
+                ano=year_number,
+                semana=str(week_number),
+                plataforma=plataforma_reg,
+                defaults={
+                    'data': totals['data'],
+                    'invest_realizado': totals['invest_realizado'],
+                    'leads': totals['leads'],
+                    'conversoes': totals['conversoes'],
+                }
+            )
+
+            if not created_flag:
+                # Mantém menor data (segunda-feira) registrada na semana
+                if venda_obj.data > totals['data']:
+                    venda_obj.data = totals['data']
+                # Soma métricas
+                venda_obj.invest_realizado += totals['invest_realizado']
+                venda_obj.leads += totals['leads']
+                venda_obj.conversoes += totals['conversoes']
+            # Salva após alterações ou criação (save() já chamado em get_or_create se created)
+            venda_obj.save()
+
         return {
             'created': created_count,
             'updated': updated_count
