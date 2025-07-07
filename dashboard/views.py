@@ -40,7 +40,8 @@ class DashboardAPIView(views.APIView):
 
             empresa = getattr(self.request, 'empresa', None)
             queryset = self.get_queryset().filter(ano=year)
-            if month:
+            # Só filtra por mês se não for filtro anual
+            if month and filter_type != 'ano':
                 queryset = queryset.filter(data__month=month)
             if week and filter_type == 'semana':
                 queryset = queryset.filter(semana=week)
@@ -52,6 +53,10 @@ class DashboardAPIView(views.APIView):
                 queryset = queryset.filter(vendas_instagram__gt=0)
             elif plataforma == 'facebook':
                 queryset = queryset.filter(vendas_facebook__gt=0)
+            
+            # Log para debug do queryset
+            logger.warning(f"[DASHBOARD] Plataforma: {plataforma}")
+            logger.warning(f"[DASHBOARD] Total de registros após filtro de plataforma: {queryset.count()}")
 
             # Filtro de plataforma para médias históricas
             plataforma_filter = {}
@@ -84,12 +89,14 @@ class DashboardAPIView(views.APIView):
             yearly_metrics = {}
 
             # Log detalhado dos valores para debug
-            logger.warning(f"[DASHBOARD ROI] Valores para {plataforma}:")
+            logger.warning(f"[DASHBOARD] Filtro: {filter_type}, Ano: {year}, Mês: {month}")
+            logger.warning(f"[DASHBOARD] Valores para {plataforma}:")
             logger.warning(f"Investimento realizado: {metrics['invest_realizado']}")
             logger.warning(f"Faturamento geral: {metrics['faturamento']}")
             logger.warning(f"Faturamento campanha: {metrics['faturamento_campanha']}")
             logger.warning(f"ROI calculado: {metrics['roi']}")
             logger.warning(f"Vendas {plataforma}: {metrics[f'vendas_{plataforma}']}")
+            logger.warning(f"Total de registros no queryset: {queryset.count()}")
 
             # Log dos dados brutos para verificar os valores individuais
             for venda in queryset:
@@ -100,22 +107,46 @@ class DashboardAPIView(views.APIView):
                 logger.warning(f"ROI: {venda.roi_realizado}")
                 logger.warning(f"Vendas {plataforma}: {getattr(venda, f'vendas_{plataforma}')}")
 
-            historical_data = queryset.order_by('data').values('data').annotate(
-                invest_realizado_data=Sum('invest_realizado'),
-                invest_projetado_data=Sum('invest_projetado'),
-                fat_camp_realizado_data=Sum('fat_camp_realizado'),
-                fat_geral_data=Sum('fat_geral'),
-                leads_data=Sum('leads'),
-                clientes_novos_data=Sum('clientes_novos'),
-                clientes_recorrentes_data=Sum('clientes_recorrentes'),
-                vendas_google_data=Sum('vendas_google'),
-                vendas_instagram_data=Sum('vendas_instagram'),
-                vendas_facebook_data=Sum('vendas_facebook'),
-                taxa_conversao_data=Avg('taxa_conversao'),
-                roi_data=Avg('roi_realizado'),
-                ticket_medio_data=Avg('ticket_medio_realizado'),
-                cac_data=Avg('cac_realizado')
-            )
+            # Para dashboard anual, agrupa por mês. Para outros, agrupa por data
+            if filter_type == 'ano':
+                logger.warning(f"[DASHBOARD ANUAL] Gerando dados históricos por mês")
+                historical_data = queryset.order_by('data__month').values('data__month').annotate(
+                    invest_realizado_data=Sum('invest_realizado'),
+                    invest_projetado_data=Sum('invest_projetado'),
+                    fat_camp_realizado_data=Sum('fat_camp_realizado'),
+                    fat_geral_data=Sum('fat_geral'),
+                    leads_data=Sum('leads'),
+                    clientes_novos_data=Sum('clientes_novos'),
+                    clientes_recorrentes_data=Sum('clientes_recorrentes'),
+                    vendas_google_data=Sum('vendas_google'),
+                    vendas_instagram_data=Sum('vendas_instagram'),
+                    vendas_facebook_data=Sum('vendas_facebook'),
+                    taxa_conversao_data=Avg('taxa_conversao'),
+                    roi_data=Avg('roi_realizado'),
+                    ticket_medio_data=Avg('ticket_medio_realizado'),
+                    cac_data=Avg('cac_realizado')
+                )
+                
+                # Log dos dados históricos gerados
+                for item in historical_data:
+                    logger.warning(f"[DASHBOARD ANUAL HISTORICAL] Mês {item['data__month']}: ROI={item['roi_data']}, Ticket={item['ticket_medio_data']}, Taxa={item['taxa_conversao_data']}, CAC={item['cac_data']}")
+            else:
+                historical_data = queryset.order_by('data').values('data').annotate(
+                    invest_realizado_data=Sum('invest_realizado'),
+                    invest_projetado_data=Sum('invest_projetado'),
+                    fat_camp_realizado_data=Sum('fat_camp_realizado'),
+                    fat_geral_data=Sum('fat_geral'),
+                    leads_data=Sum('leads'),
+                    clientes_novos_data=Sum('clientes_novos'),
+                    clientes_recorrentes_data=Sum('clientes_recorrentes'),
+                    vendas_google_data=Sum('vendas_google'),
+                    vendas_instagram_data=Sum('vendas_instagram'),
+                    vendas_facebook_data=Sum('vendas_facebook'),
+                    taxa_conversao_data=Avg('taxa_conversao'),
+                    roi_data=Avg('roi_realizado'),
+                    ticket_medio_data=Avg('ticket_medio_realizado'),
+                    cac_data=Avg('cac_realizado')
+                )
 
             if filter_type == 'mes' and month:
                 previous_months_data = Venda.objects.filter(
@@ -161,6 +192,82 @@ class DashboardAPIView(views.APIView):
                         'ticket_medio_avg': sum(item['ticket_medio_avg'] or 0 for item in previous_months_data if item['ticket_medio_avg'] is not None) / len([x for x in previous_months_data if x['ticket_medio_avg'] is not None]) if any(item['ticket_medio_avg'] is not None for item in previous_months_data) else 0,
                         'taxa_conversao_avg': sum(item['taxa_conversao_avg'] or 0 for item in previous_months_data if item['taxa_conversao_avg'] is not None) / len([x for x in previous_months_data if x['taxa_conversao_avg'] is not None]) if any(item['taxa_conversao_avg'] is not None for item in previous_months_data) else 0,
                         'cac_avg': sum(item['cac_avg'] or 0 for item in previous_months_data if item['cac_avg'] is not None) / len([x for x in previous_months_data if x['cac_avg'] is not None]) if any(item['cac_avg'] is not None for item in previous_months_data) else 0
+                    })
+                else:
+                    yearly_metrics.update({
+                        'invest_realizado_avg': metrics['invest_realizado'] or 0,
+                        'invest_projetado_avg': metrics['invest_projetado'] or 0,
+                        'faturamento_avg': metrics['faturamento'] or 0,
+                        'faturamento_campanha_avg': metrics['faturamento_campanha'] or 0,
+                        'clientes_novos_avg': metrics['clientes_novos'] or 0,
+                        'clientes_recorrentes_avg': metrics['clientes_recorrentes'] or 0,
+                        'leads_avg': metrics['leads'] or 0,
+                        'vendas_google_avg': metrics['vendas_google'] or 0,
+                        'vendas_instagram_avg': metrics['vendas_instagram'] or 0,
+                        'vendas_facebook_avg': metrics['vendas_facebook'] or 0,
+                        'roi_avg': metrics['roi'] or 0,
+                        'ticket_medio_avg': metrics['ticket_medio'] or 0,
+                        'taxa_conversao_avg': metrics['taxa_conversao'] or 0,
+                        'cac_avg': metrics['cac'] or 0
+                    })
+            
+            elif filter_type == 'ano':
+                # Para filtro anual, calcula médias baseadas no ano anterior
+                logger.warning(f"[DASHBOARD ANUAL] Calculando dados para ano {year}")
+                logger.warning(f"[DASHBOARD ANUAL] Total de registros no ano: {queryset.count()}")
+                
+                # Log dos dados por mês para debug
+                monthly_data = queryset.values('data__month').annotate(
+                    fat_sum=Sum('fat_geral'),
+                    clientes_sum=Sum('clientes_novos')
+                ).order_by('data__month')
+                
+                for month_data in monthly_data:
+                    logger.warning(f"[DASHBOARD ANUAL] Mês {month_data['data__month']}: Faturamento={month_data['fat_sum']}, Clientes={month_data['clientes_sum']}")
+                
+                # Para filtro anual, calcula médias baseadas no ano anterior
+                previous_year_data = Venda.objects.filter(
+                    ano=year - 1,
+                    empresa=empresa,
+                    **plataforma_filter
+                ).values('data__month').annotate(
+                    invest_realizado_sum=Sum('invest_realizado'),
+                    invest_projetado_sum=Sum('invest_projetado'),
+                    faturamento_sum=Sum('fat_geral'),
+                    faturamento_campanha_sum=Sum('fat_camp_realizado'),
+                    clientes_novos_sum=Sum('clientes_novos'),
+                    clientes_recorrentes_sum=Sum('clientes_recorrentes'),
+                    leads_sum=Sum('leads'),
+                    vendas_google_sum=Sum('vendas_google'),
+                    vendas_instagram_sum=Sum('vendas_instagram'),
+                    vendas_facebook_sum=Sum('vendas_facebook'),
+                    roi_avg=Avg('roi_realizado'),
+                    ticket_medio_avg=Avg('ticket_medio_realizado'),
+                    taxa_conversao_avg=Avg('taxa_conversao'),
+                    cac_avg=Avg('cac_realizado')
+                ).exclude(
+                    invest_realizado_sum__isnull=True,
+                    faturamento_sum__isnull=True,
+                    clientes_novos_sum__isnull=True
+                ).order_by('data__month')
+
+                num_months_previous = len(previous_year_data)
+                if num_months_previous > 0:
+                    yearly_metrics.update({
+                        'invest_realizado_avg': sum(item['invest_realizado_sum'] or 0 for item in previous_year_data) / num_months_previous,
+                        'invest_projetado_avg': sum(item['invest_projetado_sum'] or 0 for item in previous_year_data) / num_months_previous,
+                        'faturamento_avg': sum(item['faturamento_sum'] or 0 for item in previous_year_data) / num_months_previous,
+                        'faturamento_campanha_avg': sum(item['faturamento_campanha_sum'] or 0 for item in previous_year_data) / num_months_previous,
+                        'clientes_novos_avg': sum(item['clientes_novos_sum'] or 0 for item in previous_year_data) / num_months_previous,
+                        'clientes_recorrentes_avg': sum(item['clientes_recorrentes_sum'] or 0 for item in previous_year_data) / num_months_previous,
+                        'leads_avg': sum(item['leads_sum'] or 0 for item in previous_year_data) / num_months_previous,
+                        'vendas_google_avg': sum(item['vendas_google_sum'] or 0 for item in previous_year_data) / num_months_previous,
+                        'vendas_instagram_avg': sum(item['vendas_instagram_sum'] or 0 for item in previous_year_data) / num_months_previous,
+                        'vendas_facebook_avg': sum(item['vendas_facebook_sum'] or 0 for item in previous_year_data) / num_months_previous,
+                        'roi_avg': sum(item['roi_avg'] or 0 for item in previous_year_data if item['roi_avg'] is not None) / len([x for x in previous_year_data if x['roi_avg'] is not None]) if any(item['roi_avg'] is not None for item in previous_year_data) else 0,
+                        'ticket_medio_avg': sum(item['ticket_medio_avg'] or 0 for item in previous_year_data if item['ticket_medio_avg'] is not None) / len([x for x in previous_year_data if x['ticket_medio_avg'] is not None]) if any(item['ticket_medio_avg'] is not None for item in previous_year_data) else 0,
+                        'taxa_conversao_avg': sum(item['taxa_conversao_avg'] or 0 for item in previous_year_data if item['taxa_conversao_avg'] is not None) / len([x for x in previous_year_data if x['taxa_conversao_avg'] is not None]) if any(item['taxa_conversao_avg'] is not None for item in previous_year_data) else 0,
+                        'cac_avg': sum(item['cac_avg'] or 0 for item in previous_year_data if item['cac_avg'] is not None) / len([x for x in previous_year_data if x['cac_avg'] is not None]) if any(item['cac_avg'] is not None for item in previous_year_data) else 0
                     })
                 else:
                     yearly_metrics.update({
@@ -287,7 +394,7 @@ class DashboardAPIView(views.APIView):
                 'ticket_medio': float(metrics['ticket_medio'] or 0),
                 'taxa_conversao': float(metrics['taxa_conversao'] or 0),
                 'cac': float(metrics['cac'] or 0),
-                'labels': [item['data'].strftime('%d/%m') for item in historical_data],
+                'labels': [datetime(2000, item['data__month'], 1).strftime('%B').replace('January', 'Janeiro').replace('February', 'Fevereiro').replace('March', 'Março').replace('April', 'Abril').replace('May', 'Maio').replace('June', 'Junho').replace('July', 'Julho').replace('August', 'Agosto').replace('September', 'Setembro').replace('October', 'Outubro').replace('November', 'Novembro').replace('December', 'Dezembro') if filter_type == 'ano' else item['data'].strftime('%d/%m') for item in historical_data] if historical_data else [],
                 'invest_realizado_data': [float(item['invest_realizado_data'] or 0) for item in historical_data],
                 'invest_projetado_data': [float(item['invest_projetado_data'] or 0) for item in historical_data],
                 'saldo_invest_data': [float((item['invest_projetado_data'] or 0) - (item['invest_realizado_data'] or 0)) for item in historical_data],
@@ -303,7 +410,17 @@ class DashboardAPIView(views.APIView):
                 'taxa_conversao_data': [float(item['taxa_conversao_data'] or 0) for item in historical_data],
                 'roi_data': [float(item['roi_data'] or 0) for item in historical_data],
                 'ticket_medio_data': [float(item['ticket_medio_data'] or 0) for item in historical_data],
-                'cac_data': [float(item['cac_data'] or 0) for item in historical_data]
+                'cac_data': [float(item['cac_data'] or 0) for item in historical_data],
+                
+                # Dados de média para os gráficos (mesmo valor para todos os meses)
+                'roi_avg_data': [float(yearly_metrics.get('roi_avg', 0))] * len(historical_data) if historical_data else [],
+                'ticket_medio_avg_data': [float(yearly_metrics.get('ticket_medio_avg', 0))] * len(historical_data) if historical_data else [],
+                'taxa_conversao_avg_data': [float(yearly_metrics.get('taxa_conversao_avg', 0))] * len(historical_data) if historical_data else [],
+                'cac_avg_data': [float(yearly_metrics.get('cac_avg', 0))] * len(historical_data) if historical_data else [],
+                'faturamento_avg_data': [float(yearly_metrics.get('faturamento_avg', 0))] * len(historical_data) if historical_data else [],
+                'clientes_novos_avg_data': [float(yearly_metrics.get('clientes_novos_avg', 0))] * len(historical_data) if historical_data else [],
+                'leads_avg_data': [float(yearly_metrics.get('leads_avg', 0))] * len(historical_data) if historical_data else [],
+                'invest_realizado_avg_data': [float(yearly_metrics.get('invest_realizado_avg', 0))] * len(historical_data) if historical_data else []
             }
 
             # Adiciona as médias anuais se existirem
@@ -327,6 +444,17 @@ class DashboardAPIView(views.APIView):
 
             logger.info(f"Dados sendo enviados: {response_data}")
             logger.info(f"Médias calculadas: {yearly_metrics.get('invest_realizado_avg', 0)}, {yearly_metrics.get('faturamento_avg', 0)}, {yearly_metrics.get('clientes_novos_avg', 0)}")
+            
+            # Log específico para debug do dashboard anual
+            if filter_type == 'ano':
+                logger.warning(f"[DASHBOARD ANUAL FINAL] Faturamento total: {response_data['faturamento']}")
+                logger.warning(f"[DASHBOARD ANUAL FINAL] Clientes novos total: {response_data['clientes_novos']}")
+                logger.warning(f"[DASHBOARD ANUAL FINAL] Investimento total: {response_data['invest_realizado']}")
+                logger.warning(f"[DASHBOARD ANUAL FINAL] ROI data: {response_data['roi_data']}")
+                logger.warning(f"[DASHBOARD ANUAL FINAL] Ticket médio data: {response_data['ticket_medio_data']}")
+                logger.warning(f"[DASHBOARD ANUAL FINAL] Taxa conversão data: {response_data['taxa_conversao_data']}")
+                logger.warning(f"[DASHBOARD ANUAL FINAL] CAC data: {response_data['cac_data']}")
+                logger.warning(f"[DASHBOARD ANUAL FINAL] Labels: {response_data['labels']}")
 
             serializer = DashboardDataSerializer(response_data)
             return Response(serializer.data)

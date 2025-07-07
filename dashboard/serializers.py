@@ -18,6 +18,7 @@ class DashboardSerializer(serializers.Serializer):
             # Valida se o número da semana está dentro do intervalo possível (1-53)
             if data['week'] < 1 or data['week'] > 53:
                 raise serializers.ValidationError("Número da semana inválido")
+        # Para filtro anual, o mês não é obrigatório
         return data
 
 class DashboardDataSerializer(serializers.Serializer):
@@ -70,4 +71,14 @@ class DashboardDataSerializer(serializers.Serializer):
     taxa_conversao_data = serializers.ListField(child=serializers.FloatField())
     roi_data = serializers.ListField(child=serializers.FloatField())
     ticket_medio_data = serializers.ListField(child=serializers.FloatField())
-    cac_data = serializers.ListField(child=serializers.FloatField()) 
+    cac_data = serializers.ListField(child=serializers.FloatField())
+    
+    # Dados de média para gráficos
+    roi_avg_data = serializers.ListField(child=serializers.FloatField(), required=False, default=[])
+    ticket_medio_avg_data = serializers.ListField(child=serializers.FloatField(), required=False, default=[])
+    taxa_conversao_avg_data = serializers.ListField(child=serializers.FloatField(), required=False, default=[])
+    cac_avg_data = serializers.ListField(child=serializers.FloatField(), required=False, default=[])
+    faturamento_avg_data = serializers.ListField(child=serializers.FloatField(), required=False, default=[])
+    clientes_novos_avg_data = serializers.ListField(child=serializers.FloatField(), required=False, default=[])
+    leads_avg_data = serializers.ListField(child=serializers.FloatField(), required=False, default=[])
+    invest_realizado_avg_data = serializers.ListField(child=serializers.FloatField(), required=False, default=[]) 
