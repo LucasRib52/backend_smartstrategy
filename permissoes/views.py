@@ -180,7 +180,8 @@ class UserPermissaoViewSet(viewsets.ViewSet):
                     'codigo': modulo.codigo,
                     'nome': modulo.nome,
                     'descricao': modulo.descricao,
-                    'tem_permissao': bool(permissoes.get(modulo.codigo, False))
+                    # Aqui retorna o valor granular salvo
+                    'tem_permissao': permissoes.get(modulo.codigo, '')
                 })
             
             return Response(modulos_data)

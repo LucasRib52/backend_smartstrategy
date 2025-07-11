@@ -46,7 +46,8 @@ class UserPermissaoSerializer(serializers.ModelSerializer):
                 'codigo': modulo.codigo,
                 'nome': modulo.nome,
                 'descricao': modulo.descricao,
-                'tem_permissao': permissoes.get(modulo.codigo, False)
+                # Aqui retorna o valor granular, não booleano
+                'tem_permissao': permissoes.get(modulo.codigo, '')
             })
         
         data['modulos'] = modulos_data

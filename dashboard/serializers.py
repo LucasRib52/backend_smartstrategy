@@ -4,20 +4,18 @@ from venda.models import Venda
 class DashboardSerializer(serializers.Serializer):
     year = serializers.IntegerField(required=True)
     month = serializers.IntegerField(required=False, allow_null=True)
-    week = serializers.IntegerField(required=False, allow_null=True)
-    filterType = serializers.ChoiceField(choices=['ano', 'mes', 'semana'], required=True)
+    comparisonType = serializers.ChoiceField(
+        choices=['mes_anterior', 'mes_aleatorio', 'media_ano'], 
+        required=False, 
+        default='mes_anterior'
+    )
+    filterType = serializers.ChoiceField(choices=['ano', 'mes'], required=True)
+    comparisonMonth = serializers.IntegerField(required=False, allow_null=True)
+    comparisonYear = serializers.IntegerField(required=False, allow_null=True)
 
     def validate(self, data):
         if data['filterType'] == 'mes' and not data.get('month'):
             raise serializers.ValidationError("O mês é obrigatório quando o filtro é mensal")
-        if data['filterType'] == 'semana':
-            if not data.get('week'):
-                raise serializers.ValidationError("A semana é obrigatória quando o filtro é semanal")
-            if not data.get('month'):
-                raise serializers.ValidationError("O mês é obrigatório quando o filtro é semanal")
-            # Valida se o número da semana está dentro do intervalo possível (1-53)
-            if data['week'] < 1 or data['week'] > 53:
-                raise serializers.ValidationError("Número da semana inválido")
         # Para filtro anual, o mês não é obrigatório
         return data
 

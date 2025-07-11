@@ -44,6 +44,23 @@ class CreateUserCompanyLinkSerializer(serializers.ModelSerializer):
     position = serializers.CharField(max_length=100)
     permissions = serializers.JSONField()
 
+    # Define níveis de permissão granulares
+    PERMISSION_LEVELS = ['view', 'edit', 'full']
+
+    def validate_permissions(self, value):
+        # Valida os níveis de permissão para módulos
+        if not isinstance(value, dict):
+            raise serializers.ValidationError('Permissões devem ser um objeto contendo modulos')
+        modulos = value.get('modulos', {})
+        if not isinstance(modulos, dict):
+            raise serializers.ValidationError('Permissões de módulos devem ser um objeto')
+        for lvl in modulos.values():
+            if lvl not in self.PERMISSION_LEVELS:
+                raise serializers.ValidationError(
+                    f"Nivel de permissão inválido: {lvl}. Opções válidas: {', '.join(self.PERMISSION_LEVELS)}"
+                )
+        return value
+
     class Meta:
         model = UserCompanyLink
         fields = ['email', 'position', 'permissions']
@@ -95,6 +112,22 @@ class UpdateUserCompanyLinkSerializer(serializers.ModelSerializer):
     """
     Serializer para atualização de vínculo entre usuário e empresa
     """
+    # Garante campo JSON e valida níveis
+    permissions = serializers.JSONField()
+    PERMISSION_LEVELS = ['view', 'edit', 'full']
+
+    def validate_permissions(self, value):
+        # Valida os níveis de permissão para módulos na atualização
+        modulos = value.get('modulos', {})
+        if not isinstance(modulos, dict):
+            raise serializers.ValidationError('Permissões de módulos devem ser um objeto')
+        for lvl in modulos.values():
+            if lvl not in self.PERMISSION_LEVELS:
+                raise serializers.ValidationError(
+                    f"Nivel de permissão inválido: {lvl}. Opções válidas: {', '.join(self.PERMISSION_LEVELS)}"
+                )
+        return value
+
     class Meta:
         model = UserCompanyLink
         fields = ['status', 'permissions']

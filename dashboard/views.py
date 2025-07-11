@@ -33,18 +33,16 @@ class DashboardAPIView(views.APIView):
 
             year = serializer.validated_data['year']
             month = serializer.validated_data.get('month')
-            week = serializer.validated_data.get('week')
+            comparison_type = serializer.validated_data.get('comparisonType', 'mes_anterior')
             filter_type = serializer.validated_data['filterType']
 
-            logger.info(f"Dashboard request - Year: {year}, Month: {month}, Week: {week}, Filter: {filter_type}")
+            logger.info(f"Dashboard request - Year: {year}, Month: {month}, Comparison: {comparison_type}, Filter: {filter_type}")
 
             empresa = getattr(self.request, 'empresa', None)
             queryset = self.get_queryset().filter(ano=year)
             # Só filtra por mês se não for filtro anual
             if month and filter_type != 'ano':
                 queryset = queryset.filter(data__month=month)
-            if week and filter_type == 'semana':
-                queryset = queryset.filter(semana=week)
 
             plataforma = request.query_params.get('plataforma')
             if plataforma == 'google':
@@ -148,68 +146,165 @@ class DashboardAPIView(views.APIView):
                     cac_data=Avg('cac_realizado')
                 )
 
+            # Calcula dados de comparação baseado no tipo selecionado
             if filter_type == 'mes' and month:
-                previous_months_data = Venda.objects.filter(
-                    ano=year,
-                    data__month__lte=month,
-                    empresa=empresa,
-                    **plataforma_filter
-                ).values('data__month').annotate(
-                    invest_realizado_sum=Sum('invest_realizado'),
-                    invest_projetado_sum=Sum('invest_projetado'),
-                    faturamento_sum=Sum('fat_geral'),
-                    faturamento_campanha_sum=Sum('fat_camp_realizado'),
-                    clientes_novos_sum=Sum('clientes_novos'),
-                    clientes_recorrentes_sum=Sum('clientes_recorrentes'),
-                    leads_sum=Sum('leads'),
-                    vendas_google_sum=Sum('vendas_google'),
-                    vendas_instagram_sum=Sum('vendas_instagram'),
-                    vendas_facebook_sum=Sum('vendas_facebook'),
-                    roi_avg=Avg('roi_realizado'),
-                    ticket_medio_avg=Avg('ticket_medio_realizado'),
-                    taxa_conversao_avg=Avg('taxa_conversao'),
-                    cac_avg=Avg('cac_realizado')
-                ).exclude(
-                    invest_realizado_sum__isnull=True,
-                    faturamento_sum__isnull=True,
-                    clientes_novos_sum__isnull=True
-                ).order_by('data__month')
-
-                num_months = len(previous_months_data)
-                if num_months > 0:
-                    yearly_metrics.update({
-                        'invest_realizado_avg': sum(item['invest_realizado_sum'] or 0 for item in previous_months_data) / num_months,
-                        'invest_projetado_avg': sum(item['invest_projetado_sum'] or 0 for item in previous_months_data) / num_months,
-                        'faturamento_avg': sum(item['faturamento_sum'] or 0 for item in previous_months_data) / num_months,
-                        'faturamento_campanha_avg': sum(item['faturamento_campanha_sum'] or 0 for item in previous_months_data) / num_months,
-                        'clientes_novos_avg': sum(item['clientes_novos_sum'] or 0 for item in previous_months_data) / num_months,
-                        'clientes_recorrentes_avg': sum(item['clientes_recorrentes_sum'] or 0 for item in previous_months_data) / num_months,
-                        'leads_avg': sum(item['leads_sum'] or 0 for item in previous_months_data) / num_months,
-                        'vendas_google_avg': sum(item['vendas_google_sum'] or 0 for item in previous_months_data) / num_months,
-                        'vendas_instagram_avg': sum(item['vendas_instagram_sum'] or 0 for item in previous_months_data) / num_months,
-                        'vendas_facebook_avg': sum(item['vendas_facebook_sum'] or 0 for item in previous_months_data) / num_months,
-                        'roi_avg': sum(item['roi_avg'] or 0 for item in previous_months_data if item['roi_avg'] is not None) / len([x for x in previous_months_data if x['roi_avg'] is not None]) if any(item['roi_avg'] is not None for item in previous_months_data) else 0,
-                        'ticket_medio_avg': sum(item['ticket_medio_avg'] or 0 for item in previous_months_data if item['ticket_medio_avg'] is not None) / len([x for x in previous_months_data if x['ticket_medio_avg'] is not None]) if any(item['ticket_medio_avg'] is not None for item in previous_months_data) else 0,
-                        'taxa_conversao_avg': sum(item['taxa_conversao_avg'] or 0 for item in previous_months_data if item['taxa_conversao_avg'] is not None) / len([x for x in previous_months_data if x['taxa_conversao_avg'] is not None]) if any(item['taxa_conversao_avg'] is not None for item in previous_months_data) else 0,
-                        'cac_avg': sum(item['cac_avg'] or 0 for item in previous_months_data if item['cac_avg'] is not None) / len([x for x in previous_months_data if x['cac_avg'] is not None]) if any(item['cac_avg'] is not None for item in previous_months_data) else 0
-                    })
+                comparison_metrics = {}
+                
+                if comparison_type == 'mes_anterior':
+                    # Compara com o mês anterior
+                    prev_month = month - 1
+                    prev_year = year
+                    if prev_month == 0:
+                        prev_month = 12
+                        prev_year = year - 1
+                    
+                    comparison_queryset = self.get_queryset().filter(
+                        ano=prev_year,
+                        data__month=prev_month,
+                        empresa=empresa,
+                        **plataforma_filter
+                    )
+                    
+                elif comparison_type == 'mes_aleatorio':
+                    # Compara com um mês específico selecionado pelo usuário
+                    # Pega os parâmetros do request
+                    comparison_month = request.query_params.get('comparisonMonth')
+                    comparison_year = request.query_params.get('comparisonYear')
+                    
+                    # Se não foram fornecidos, usa valores padrão
+                    if not comparison_month:
+                        comparison_month = 6  # Junho como padrão
+                    if not comparison_year:
+                        comparison_year = year
+                    
+                    logger.warning(f"[DASHBOARD COMPARISON] Comparando com mês {comparison_month}/{comparison_year}")
+                    
+                    comparison_queryset = self.get_queryset().filter(
+                        ano=int(comparison_year),
+                        data__month=int(comparison_month),
+                        empresa=empresa,
+                        **plataforma_filter
+                    )
+                    
+                    logger.warning(f"[DASHBOARD COMPARISON] Registros encontrados para comparação: {comparison_queryset.count()}")
+                    
+                elif comparison_type == 'media_ano':
+                    # Calcula média do ano atual até o mês atual
+                    comparison_queryset = self.get_queryset().filter(
+                        ano=year,
+                        data__month__lte=month,
+                        empresa=empresa,
+                        **plataforma_filter
+                    )
+                
+                # Calcula métricas de comparação
+                comparison_metrics = None
+                if comparison_queryset.exists():
+                    if comparison_type == 'media_ano':
+                        # Para média do ano, calcula a média dos meses
+                        comparison_data = comparison_queryset.values('data__month').annotate(
+                            invest_realizado_sum=Sum('invest_realizado'),
+                            invest_projetado_sum=Sum('invest_projetado'),
+                            faturamento_sum=Sum('fat_geral'),
+                            faturamento_campanha_sum=Sum('fat_camp_realizado'),
+                            clientes_novos_sum=Sum('clientes_novos'),
+                            clientes_recorrentes_sum=Sum('clientes_recorrentes'),
+                            leads_sum=Sum('leads'),
+                            vendas_google_sum=Sum('vendas_google'),
+                            vendas_instagram_sum=Sum('vendas_instagram'),
+                            vendas_facebook_sum=Sum('vendas_facebook'),
+                            roi_avg=Avg('roi_realizado'),
+                            ticket_medio_avg=Avg('ticket_medio_realizado'),
+                            taxa_conversao_avg=Avg('taxa_conversao'),
+                            cac_avg=Avg('cac_realizado')
+                        )
+                        
+                        num_months = len(comparison_data)
+                        if num_months > 0:
+                            comparison_metrics = {
+                                'invest_realizado_avg': sum(item['invest_realizado_sum'] or 0 for item in comparison_data) / num_months,
+                                'invest_projetado_avg': sum(item['invest_projetado_sum'] or 0 for item in comparison_data) / num_months,
+                                'faturamento_avg': sum(item['faturamento_sum'] or 0 for item in comparison_data) / num_months,
+                                'faturamento_campanha_avg': sum(item['faturamento_campanha_sum'] or 0 for item in comparison_data) / num_months,
+                                'clientes_novos_avg': sum(item['clientes_novos_sum'] or 0 for item in comparison_data) / num_months,
+                                'clientes_recorrentes_avg': sum(item['clientes_recorrentes_sum'] or 0 for item in comparison_data) / num_months,
+                                'leads_avg': sum(item['leads_sum'] or 0 for item in comparison_data) / num_months,
+                                'vendas_google_avg': sum(item['vendas_google_sum'] or 0 for item in comparison_data) / num_months,
+                                'vendas_instagram_avg': sum(item['vendas_instagram_sum'] or 0 for item in comparison_data) / num_months,
+                                'vendas_facebook_avg': sum(item['vendas_facebook_sum'] or 0 for item in comparison_data) / num_months,
+                                'roi_avg': sum(item['roi_avg'] or 0 for item in comparison_data if item['roi_avg'] is not None) / len([x for x in comparison_data if x['roi_avg'] is not None]) if any(item['roi_avg'] is not None for item in comparison_data) else 0,
+                                'ticket_medio_avg': sum(item['ticket_medio_avg'] or 0 for item in comparison_data if item['ticket_medio_avg'] is not None) / len([x for x in comparison_data if x['ticket_medio_avg'] is not None]) if any(item['ticket_medio_avg'] is not None for item in comparison_data) else 0,
+                                'taxa_conversao_avg': sum(item['taxa_conversao_avg'] or 0 for item in comparison_data if item['taxa_conversao_avg'] is not None) / len([x for x in comparison_data if x['taxa_conversao_avg'] is not None]) if any(item['taxa_conversao_avg'] is not None for item in comparison_data) else 0,
+                                'cac_avg': sum(item['cac_avg'] or 0 for item in comparison_data if item['cac_avg'] is not None) / len([x for x in comparison_data if x['cac_avg'] is not None]) if any(item['cac_avg'] is not None for item in comparison_data) else 0
+                            }
+                            
+                            # Verifica se os dados calculados são válidos (pelo menos um valor maior que 0)
+                            has_valid_data = any([
+                                comparison_metrics.get('faturamento_avg', 0) or 0,
+                                comparison_metrics.get('clientes_novos_avg', 0) or 0,
+                                comparison_metrics.get('leads_avg', 0) or 0,
+                                comparison_metrics.get('invest_realizado_avg', 0) or 0
+                            ]) > 0
+                            
+                            if not has_valid_data:
+                                logger.warning(f"[DASHBOARD COMPARISON] Dados calculados são todos zero para {comparison_type}")
+                                comparison_metrics = None
+                    else:
+                        # Para comparação com mês específico, usa os valores diretos
+                        comparison_metrics = comparison_queryset.aggregate(
+                            invest_realizado_avg=Sum('invest_realizado'),
+                            invest_projetado_avg=Sum('invest_projetado'),
+                            faturamento_avg=Sum('fat_geral'),
+                            faturamento_campanha_avg=Sum('fat_camp_realizado'),
+                            clientes_novos_avg=Sum('clientes_novos'),
+                            clientes_recorrentes_avg=Sum('clientes_recorrentes'),
+                            leads_avg=Sum('leads'),
+                            vendas_google_avg=Sum('vendas_google'),
+                            vendas_instagram_avg=Sum('vendas_instagram'),
+                            vendas_facebook_avg=Sum('vendas_facebook'),
+                            roi_avg=Avg('roi_realizado'),
+                            ticket_medio_avg=Avg('ticket_medio_realizado'),
+                            taxa_conversao_avg=Avg('taxa_conversao'),
+                            cac_avg=Avg('cac_realizado')
+                        )
+                        
+                        # Verifica se os dados calculados são válidos (pelo menos um valor maior que 0)
+                        has_valid_data = any([
+                            comparison_metrics.get('faturamento_avg', 0) or 0,
+                            comparison_metrics.get('clientes_novos_avg', 0) or 0,
+                            comparison_metrics.get('leads_avg', 0) or 0,
+                            comparison_metrics.get('invest_realizado_avg', 0) or 0
+                        ]) > 0
+                        
+                        if not has_valid_data:
+                            logger.warning(f"[DASHBOARD COMPARISON] Dados calculados são todos zero para {comparison_type}")
+                            comparison_metrics = None
+                
+                # Se não há dados de comparação, retorna valores zerados para mostrar "Sem dados para comparação"
+                if not comparison_metrics:
+                    logger.warning(f"[DASHBOARD COMPARISON] Nenhum dado de comparação encontrado para {comparison_type}")
+                    comparison_metrics = {
+                        'invest_realizado_avg': 0,
+                        'invest_projetado_avg': 0,
+                        'faturamento_avg': 0,
+                        'faturamento_campanha_avg': 0,
+                        'clientes_novos_avg': 0,
+                        'clientes_recorrentes_avg': 0,
+                        'leads_avg': 0,
+                        'vendas_google_avg': 0,
+                        'vendas_instagram_avg': 0,
+                        'vendas_facebook_avg': 0,
+                        'roi_avg': 0,
+                        'ticket_medio_avg': 0,
+                        'taxa_conversao_avg': 0,
+                        'cac_avg': 0
+                    }
                 else:
-                    yearly_metrics.update({
-                        'invest_realizado_avg': metrics['invest_realizado'] or 0,
-                        'invest_projetado_avg': metrics['invest_projetado'] or 0,
-                        'faturamento_avg': metrics['faturamento'] or 0,
-                        'faturamento_campanha_avg': metrics['faturamento_campanha'] or 0,
-                        'clientes_novos_avg': metrics['clientes_novos'] or 0,
-                        'clientes_recorrentes_avg': metrics['clientes_recorrentes'] or 0,
-                        'leads_avg': metrics['leads'] or 0,
-                        'vendas_google_avg': metrics['vendas_google'] or 0,
-                        'vendas_instagram_avg': metrics['vendas_instagram'] or 0,
-                        'vendas_facebook_avg': metrics['vendas_facebook'] or 0,
-                        'roi_avg': metrics['roi'] or 0,
-                        'ticket_medio_avg': metrics['ticket_medio'] or 0,
-                        'taxa_conversao_avg': metrics['taxa_conversao'] or 0,
-                        'cac_avg': metrics['cac'] or 0
-                    })
+                    logger.warning(f"[DASHBOARD COMPARISON] Dados de comparação calculados com sucesso para {comparison_type}")
+                    logger.warning(f"[DASHBOARD COMPARISON] Faturamento avg: {comparison_metrics.get('faturamento_avg', 0)}")
+                    logger.warning(f"[DASHBOARD COMPARISON] Clientes novos avg: {comparison_metrics.get('clientes_novos_avg', 0)}")
+                
+                yearly_metrics.update(comparison_metrics)
             
             elif filter_type == 'ano':
                 # Para filtro anual, calcula médias baseadas no ano anterior
