@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from venda.views import VendaViewSet
-from dashboard.views import DashboardAPIView
+from dashboard.views import DashboardAPIView, AllYearsDashboardAPIView, AvailableYearsAPIView
 from django.conf import settings
 from django.conf.urls.static import static
 
@@ -13,6 +13,8 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', include(router.urls)),
     path('api/dashboard/', DashboardAPIView.as_view(), name='dashboard-api'),
+    path('api/dashboard/all-years/', AllYearsDashboardAPIView.as_view(), name='all-years-dashboard-api'),
+    path('api/dashboard/available-years/', AvailableYearsAPIView.as_view(), name='available-years-api'),
     
     # Rotas de empresas
     path('api/', include('empresas.urls')),

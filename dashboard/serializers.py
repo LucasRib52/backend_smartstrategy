@@ -5,11 +5,11 @@ class DashboardSerializer(serializers.Serializer):
     year = serializers.IntegerField(required=True)
     month = serializers.IntegerField(required=False, allow_null=True)
     comparisonType = serializers.ChoiceField(
-        choices=['mes_anterior', 'mes_aleatorio', 'media_ano'], 
+        choices=['mes_anterior', 'mes_aleatorio', 'media_ano', 'ano_anterior', 'ano_especifico'], 
         required=False, 
         default='mes_anterior'
     )
-    filterType = serializers.ChoiceField(choices=['ano', 'mes'], required=True)
+    filterType = serializers.ChoiceField(choices=['ano', 'mes', 'todos_anos'], required=True)
     comparisonMonth = serializers.IntegerField(required=False, allow_null=True)
     comparisonYear = serializers.IntegerField(required=False, allow_null=True)
 
@@ -79,4 +79,13 @@ class DashboardDataSerializer(serializers.Serializer):
     faturamento_avg_data = serializers.ListField(child=serializers.FloatField(), required=False, default=[])
     clientes_novos_avg_data = serializers.ListField(child=serializers.FloatField(), required=False, default=[])
     leads_avg_data = serializers.ListField(child=serializers.FloatField(), required=False, default=[])
-    invest_realizado_avg_data = serializers.ListField(child=serializers.FloatField(), required=False, default=[]) 
+    invest_realizado_avg_data = serializers.ListField(child=serializers.FloatField(), required=False, default=[])
+    
+    # Dados semanais para os novos gráficos
+    weekly_labels = serializers.ListField(child=serializers.CharField(), required=False, default=[])
+    weekly_fat_camp_current = serializers.ListField(child=serializers.FloatField(), required=False, default=[])
+    weekly_fat_camp_previous = serializers.ListField(child=serializers.FloatField(), required=False, default=[])
+    weekly_fat_geral_current = serializers.ListField(child=serializers.FloatField(), required=False, default=[])
+    weekly_fat_geral_previous = serializers.ListField(child=serializers.FloatField(), required=False, default=[])
+    weekly_fat_camp_avg = serializers.ListField(child=serializers.FloatField(), required=False, default=[])
+    weekly_fat_geral_avg = serializers.ListField(child=serializers.FloatField(), required=False, default=[]) 
