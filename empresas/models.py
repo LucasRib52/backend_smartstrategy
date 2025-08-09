@@ -22,6 +22,8 @@ class Empresa(models.Model):
     email_comercial = models.EmailField()
     telefone1 = models.CharField(max_length=15)
     telefone2 = models.CharField(max_length=15, null=True, blank=True)
+    # ID de cliente no Asaas
+    asaas_customer_id = models.CharField(max_length=100, null=True, blank=True)
     site = models.URLField(null=True, blank=True)
     redes_sociais = models.JSONField(default=list)
     horario_funcionamento = models.TextField(null=True, blank=True)

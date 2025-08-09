@@ -48,6 +48,9 @@ urlpatterns = [
     
     # Planos
     path('api/', include('assinaturas.urls')),
+    
+    # URLs do app asaas
+    path('api/asaas/', include('asaas.urls')),
 ]
 
 if settings.DEBUG:

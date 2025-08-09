@@ -4,9 +4,24 @@ from django.utils import timezone
 
 
 class PlanoSerializer(serializers.ModelSerializer):
+    permissoes = serializers.SerializerMethodField()
+    
     class Meta:
         model = Plano
-        fields = ['id', 'codigo', 'nome', 'preco', 'duracao_dias']
+        fields = [
+            'id', 'codigo', 'nome', 'preco', 'duracao_dias', 'ativo', 
+            'trial_days', 'auto_renew', 'permissoes', 'vantagens', 
+            'desvantagens', 'descricao',
+            # Permissões de módulos disponíveis via API
+            'acesso_financeiro', 'acesso_marketing', 'acesso_influencer', 'acesso_analytics'
+        ]
+    
+    def get_permissoes(self, obj):
+        try:
+            return obj.get_permissoes()
+        except Exception as e:
+            print(f"Erro ao obter permissões: {str(e)}")
+            return []
 
 
 class AssinaturaSerializer(serializers.ModelSerializer):
@@ -15,17 +30,24 @@ class AssinaturaSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Assinatura
-        fields = ['id', 'plano', 'inicio', 'fim', 'ativa', 'expirada', 'dias_restantes']
+        fields = [
+            'id', 'plano', 'inicio', 'fim', 'ativa', 'expirada', 'dias_restantes',
+            'asaas_subscription_id', 'asaas_customer_id', 'payment_status',
+            'next_payment_date', 'trial_end_date'
+        ]
 
     def get_dias_restantes(self, obj):
-        # Se assinatura expirou, já retorna 0
-        if obj.expirada:
-            return 0
+        try:
+            # Se a assinatura está expirada, retorna 0 diretamente
+            if obj.expirada:
+                return 0
 
-        # Dias transcorridos desde o início
-        elapsed_days = (timezone.now().date() - obj.inicio.date()).days
+            # Calcula a diferença entre a data de vencimento e a data atual
+            # Sem adicionar +1 para manter consistência com o Asaas
+            dias_restantes = (obj.fim.date() - timezone.now().date()).days
 
-        # Calcula restantes em função da duração atual do plano (atualizada em tempo real)
-        dias_restantes = obj.plano.duracao_dias - elapsed_days
-
-        return max(dias_restantes, 0) 
+            # Garante que nunca seja negativo
+            return max(dias_restantes, 0)
+        except Exception as e:
+            print(f"Erro ao calcular dias restantes: {str(e)}")
+            return 0 

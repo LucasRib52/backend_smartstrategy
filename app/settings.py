@@ -10,12 +10,17 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-=+p$5yp11)h9a)aem+gtg*$n@9i5=mb48w$+jyuxuhvjl*#8os'
+SECRET_KEY = os.getenv('SECRET_KEY', 'dev-insecure-secret')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv('DEBUG', 'False') == 'True'
 
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '*').split(',')
+
+# Asaas Configuration (não deixe segredos hardcoded em produção)
+ASAAS_API_KEY = os.getenv('ASAAS_API_KEY')
+ASAAS_API_URL = os.getenv('ASAAS_API_URL', 'https://sandbox.asaas.com/api/v3')
+ASAAS_WEBHOOK_SECRET = os.getenv('ASAAS_WEBHOOK_SECRET')
 
 
 # Application definition
@@ -45,6 +50,7 @@ INSTALLED_APPS = [
     'empresa_pessoafisica',
     'permissoes',
     'ai_marketing_agent',
+    'asaas',
 ]
 
 MIDDLEWARE = [
@@ -114,7 +120,7 @@ AUTH_PASSWORD_VALIDATORS = [
 # Internationalization
 # https://docs.djangoproject.com/en/5.1/topics/i18n/
 
-LANGUAGE_CODE = 'en-us'
+LANGUAGE_CODE = 'pt-br'
 
 TIME_ZONE = 'UTC'
 
@@ -205,7 +211,7 @@ CSRF_COOKIE_SAMESITE = 'Lax'
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
-]
+] + ([o for o in os.getenv('CSRF_TRUSTED_ORIGINS', '').split(',') if o] if os.getenv('CSRF_TRUSTED_ORIGINS') else [])
 
 # Configurações de Sessão (mantendo apenas para admin)
 SESSION_ENGINE = 'django.contrib.sessions.backends.db'

@@ -570,6 +570,13 @@ class EmpresaAdminViewSet(viewsets.ModelViewSet):
             data_fim_anterior = assinatura.fim
             
             assinatura.marcar_como_expirada()
+            # Cancela no Asaas, se existir
+            try:
+                if assinatura.asaas_subscription_id:
+                    from asaas.services import AsaasService
+                    AsaasService().cancel_subscription(assinatura)
+            except Exception:
+                pass
 
             # Bloqueia a empresa automaticamente
             empresa = assinatura.empresa
@@ -1303,7 +1310,7 @@ class AssinaturaAdminViewSet(viewsets.ModelViewSet):
                 empresa_bloqueada = True
                 
                 # Criar notificações
-                criar_notificacao_empresa_ativada(empresa, assinatura.plano.nome)
+                criar_notificacao_empresa_bloqueada(empresa, "Bloqueio automático por expiração do plano")
                 criar_notificacao_plano_expirado(assinatura, "Expiração manual pelo administrador")
                 
                 # Registra no histórico
@@ -1604,6 +1611,22 @@ class PlanoAdminViewSet(viewsets.ModelViewSet):
         content_range = f'items 0-{total - 1}/{total}' if total else 'items */0'
         headers = {'Content-Range': content_range}
         return Response(serializer.data, headers=headers)
+
+    def destroy(self, request, *args, **kwargs):
+        """Override destroy para impedir exclusão de planos em uso"""
+        # Impedir exclusão se houver quaisquer assinaturas vinculadas
+        from assinaturas.models import Assinatura
+        plano = self.get_object()
+        count = Assinatura.objects.filter(plano=plano).count()
+        if count > 0:
+            return Response({
+                'error': 'Não é possível excluir este plano',
+                'detail': f'O plano "{plano.nome}" possui {count} assinatura(s) vinculada(s). Remova-as primeiro ou desative o plano.',
+                'assinaturas_count': count,
+                'plano_nome': plano.nome
+            }, status=status.HTTP_400_BAD_REQUEST)
+        # Se não houver assinaturas, permitir exclusão
+        return super().destroy(request, *args, **kwargs)
 
 
 # --------------------- Notificações ---------------------

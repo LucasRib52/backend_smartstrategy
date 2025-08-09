@@ -147,15 +147,166 @@ class EmpresaSerializer(serializers.ModelSerializer):
         return value
 
     def get_assinatura_ativa(self, obj):
-        assinatura = obj.assinatura_ativa
-        if not assinatura:
+        try:
+            assinatura = obj.assinatura_ativa
+            # Reconciliação com Asaas SEMPRE: garante bloqueio/desbloqueio mesmo sem webhook
+            try:
+                if getattr(obj, 'asaas_customer_id', None):
+                    from asaas.services import AsaasService
+                    service = AsaasService()
+                    remote = service.list_customer_subscriptions(obj.asaas_customer_id)
+                    remote_data = remote.get('data', []) if isinstance(remote, dict) else []
+                    active_remote_ids = {
+                        item.get('id') for item in remote_data
+                        if str(item.get('status', '')).upper() in {'ACTIVE'}
+                    }
+                    if not active_remote_ids and assinatura:
+                        # Não existe assinatura ativa no Asaas → bloqueia e marca local como cancelada/expirada
+                        assinatura.payment_status = 'CANCELLED'
+                        assinatura.ativa = False
+                        assinatura.expirada = True
+                        assinatura.save(update_fields=['payment_status', 'ativa', 'expirada'])
+                        if obj.ativo:
+                            obj.ativo = False
+                            obj.save(update_fields=['ativo'])
+                        assinatura = None
+                    elif active_remote_ids:
+                        # Existe ativa no Asaas → garante desbloqueio e ativa correspondente local
+                        if not obj.ativo:
+                            obj.ativo = True
+                            obj.save(update_fields=['ativo'])
+                        if assinatura and assinatura.asaas_subscription_id in active_remote_ids:
+                            if assinatura.payment_status != 'CONFIRMED' or assinatura.expirada or not assinatura.ativa:
+                                assinatura.payment_status = 'CONFIRMED'
+                                assinatura.ativa = True
+                                assinatura.expirada = False
+                                assinatura.save(update_fields=['payment_status', 'ativa', 'expirada'])
+                        else:
+                            from assinaturas.models import Assinatura as AssinaturaModel
+                            candidato = AssinaturaModel.objects.filter(
+                                empresa=obj,
+                                asaas_subscription_id__in=list(active_remote_ids)
+                            ).order_by('-criado_em').first()
+                            if candidato:
+                                AssinaturaModel.objects.filter(empresa=obj, ativa=True).exclude(id=candidato.id).update(
+                                    ativa=False, expirada=True, payment_status='CANCELLED'
+                                )
+                                candidato.payment_status = 'CONFIRMED'
+                                candidato.ativa = True
+                                candidato.expirada = False
+                                candidato.save(update_fields=['payment_status', 'ativa', 'expirada'])
+                                assinatura = candidato
+            except Exception:
+                pass
+            # Auto-expiração: se a assinatura ativa passou do fim e ainda não foi marcada, expira e bloqueia
+            if assinatura and assinatura.fim <= timezone.now() and not assinatura.expirada:
+                try:
+                    assinatura.marcar_como_expirada()
+                    # Cancela no Asaas também
+                    try:
+                        if assinatura.asaas_subscription_id:
+                            from asaas.services import AsaasService
+                            AsaasService().cancel_subscription(assinatura)
+                    except Exception:
+                        pass
+                    empresa = assinatura.empresa
+                    if empresa.ativo:
+                        empresa.ativo = False
+                        empresa.save(update_fields=['ativo'])
+                    # Notificações e histórico
+                    try:
+                        from painel_admin.notificacoes_utils import criar_notificacao_plano_expirado, criar_notificacao_empresa_bloqueada
+                        criar_notificacao_plano_expirado(assinatura, "Expiração automática por tempo")
+                        criar_notificacao_empresa_bloqueada(empresa, "Bloqueio automático por expiração de plano")
+                    except Exception:
+                        pass
+                    try:
+                        from assinaturas.models import HistoricoPagamento
+                        HistoricoPagamento.objects.create(
+                            assinatura=assinatura,
+                            tipo='EXPIRACAO',
+                            descricao='Plano expirado automaticamente ao consultar status',
+                            data_fim_anterior=assinatura.fim
+                        )
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+                # Recarrega assinatura ativa (pode não existir mais)
+                assinatura = obj.assinatura_ativa
+            if not assinatura:
+                # Reconciliação com Asaas se não houver assinatura local ativa
+                try:
+                    if getattr(obj, 'asaas_customer_id', None):
+                        from asaas.services import AsaasService
+                        service = AsaasService()
+                        remote = service.list_customer_subscriptions(obj.asaas_customer_id)
+                        remote_data = remote.get('data', []) if isinstance(remote, dict) else []
+                        active_remote_ids = {
+                            item.get('id') for item in remote_data
+                            if str(item.get('status', '')).upper() in {'ACTIVE'}
+                        }
+                        if active_remote_ids:
+                            # Há ativa no Asaas; tenta alinhar local
+                            from assinaturas.models import Assinatura as AssinaturaModel
+                            candidato = AssinaturaModel.objects.filter(
+                                empresa=obj,
+                                asaas_subscription_id__in=list(active_remote_ids)
+                            ).order_by('-criado_em').first()
+                            if candidato:
+                                AssinaturaModel.objects.filter(empresa=obj, ativa=True).exclude(id=candidato.id).update(
+                                    ativa=False, expirada=True, payment_status='CANCELLED'
+                                )
+                                candidato.payment_status = 'CONFIRMED'
+                                candidato.ativa = True
+                                candidato.expirada = False
+                                candidato.save(update_fields=['payment_status', 'ativa', 'expirada'])
+                                assinatura = candidato
+                                if not obj.ativo:
+                                    obj.ativo = True
+                                    obj.save(update_fields=['ativo'])
+                except Exception:
+                    pass
+                if not assinatura:
+                    return None
+            # Auto-desbloqueio: se há assinatura ativa e empresa está bloqueada, desbloqueia
+            try:
+                if assinatura.ativa and not assinatura.expirada and not obj.ativo:
+                    obj.ativo = True
+                    obj.save(update_fields=['ativo'])
+                    try:
+                        from painel_admin.notificacoes_utils import criar_notificacao_empresa_ativada
+                        criar_notificacao_empresa_ativada(obj, assinatura.plano.nome)
+                    except Exception:
+                        pass
+                    try:
+                        from assinaturas.models import HistoricoPagamento
+                        HistoricoPagamento.objects.create(
+                            assinatura=assinatura,
+                            tipo='DESBLOQUEIO',
+                            descricao='Desbloqueio automático por assinatura ativa confirmada'
+                        )
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            context = self.context.copy()
+            context['now'] = timezone.now()
+            return AssinaturaSerializer(assinatura, context=context).data
+        except Exception as e:
+            print(f"Erro ao serializar assinatura ativa: {str(e)}")
             return None
-        context = self.context.copy()
-        context['now'] = timezone.now()
-        return AssinaturaSerializer(assinatura, context=context).data
 
     def get_plano_expirado(self, obj):
-        assinatura = obj.assinatura_ativa
-        if not assinatura:
+        try:
+            assinatura = obj.assinatura_ativa
+            if assinatura:
+                return assinatura.expirada
+            # Sem assinatura ativa: considera expirado se última assinatura existir e estiver expirada
+            ultima = obj.assinaturas.order_by('-inicio').first()
+            if ultima:
+                return True if ultima.expirada or ultima.fim <= timezone.now() else False
             return True
-        return assinatura.expirada 
+        except Exception as e:
+            print(f"Erro ao verificar plano expirado: {str(e)}")
+            return True

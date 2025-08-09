@@ -180,8 +180,25 @@ class MinhaEmpresaAPIView(views.APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        empresa = getattr(request.user, 'empresa_atual', None)
-        if not empresa:
-            return Response({'detail': 'Empresa não encontrada'}, status=status.HTTP_404_NOT_FOUND)
-        serializer = EmpresaSerializer(empresa, context={'request': request})
-        return Response(serializer.data)
+        try:
+            empresa = getattr(request.user, 'empresa_atual', None)
+            if not empresa:
+                return Response({'detail': 'Empresa não encontrada'}, status=status.HTTP_404_NOT_FOUND)
+            # Prefetch assinatura ativa com plano para reduzir queries
+            empresa_qs = Empresa.objects.filter(id=empresa.id)
+            from assinaturas.models import Assinatura
+            from django.db.models import Prefetch
+            empresa_qs = empresa_qs.prefetch_related(
+                Prefetch(
+                    'assinaturas',
+                    queryset=Assinatura.objects.select_related('plano').order_by('-inicio'),
+                )
+            )
+            empresa = empresa_qs.first() or empresa
+            serializer = EmpresaSerializer(empresa, context={'request': request})
+            return Response(serializer.data)
+        except Exception as e:
+            print(f"Erro no endpoint minha empresa: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return Response({'error': 'Erro interno do servidor'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

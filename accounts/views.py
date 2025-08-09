@@ -41,7 +41,10 @@ class CustomTokenObtainPairView(TokenObtainPairView):
         
         # Define a empresa_atual do usuário
         try:
-            if user.user_type == 'PJ':
+            # Se for superuser, ignora definição de empresa_atual
+            if user.is_superuser:
+                logger.info(f"[TOKEN] Superuser {user.email} não requer empresa_atual")
+            elif user.user_type == 'PJ':
                 # Se é PJ, a própria empresa é a empresa_atual
                 empresa = Empresa.objects.get(email_comercial=user.email)
                 user.empresa_atual = empresa

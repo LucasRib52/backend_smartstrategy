@@ -207,11 +207,21 @@ class HistoricoPagamentoSerializer(serializers.ModelSerializer):
 
 
 class PlanoAdminSerializer(serializers.ModelSerializer):
-    codigo = serializers.CharField(required=False, allow_blank=True)
-
+    """Serializer para administração de planos"""
+    
     class Meta:
         model = Plano
-        fields = ['id', 'codigo', 'nome', 'preco', 'duracao_dias', 'ativo']
+        fields = [
+            'id', 'codigo', 'nome', 'preco', 'duracao_dias', 'ativo', 
+            'trial_days', 'auto_renew', 'asaas_product_id', 'asaas_price_id',
+            # Permissões
+            'acesso_financeiro', 'acesso_marketing', 'acesso_influencer',
+            'acesso_analytics', 'acesso_usuarios', 'acesso_configuracoes',
+            'acesso_relatorios', 'acesso_api', 'acesso_white_label',
+            'acesso_suporte_prioritario',
+            # Vantagens e desvantagens
+            'vantagens', 'desvantagens', 'descricao'
+        ]
 
     def create(self, validated_data):
         if not validated_data.get('codigo'):
