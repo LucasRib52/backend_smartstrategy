@@ -51,6 +51,9 @@ urlpatterns = [
     
     # URLs do app asaas
     path('api/asaas/', include('asaas.urls')),
+
+    # URLs do app influencer
+    path('api/influencer/', include('influencer.urls')),
 ]
 
 if settings.DEBUG:

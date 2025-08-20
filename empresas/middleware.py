@@ -24,6 +24,7 @@ class EmpresaMiddleware(MiddlewareMixin):
             '/api/accounts/register/',
             '/api/accounts/register/person/',
             '/api/accounts/register/company/',
+            '/api/accounts/register/person-empresarial/',
             '/api/accounts/verify-email/',
             '/api/accounts/reset-password/',
             '/api/accounts/reset-password/confirm/',
@@ -69,7 +70,7 @@ class EmpresaMiddleware(MiddlewareMixin):
                     logger.error(f"[MIDDLEWARE] Empresa não encontrada pelo ID do token: {empresa_id}")
 
             # Se não encontrou pelo ID ou não tem ID, tenta pelo email
-            if user.user_type == 'PJ':
+            if user.user_type in ('PJ', 'PFE'):
                 try:
                     empresa = Empresa.objects.get(email_comercial=user.email)
                     logger.info(f"[MIDDLEWARE] Empresa PJ encontrada pelo email: {user.email}")

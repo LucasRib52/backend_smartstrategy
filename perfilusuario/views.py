@@ -19,7 +19,7 @@ def obter_perfil(request):
         foto_url = request.build_absolute_uri(perfil.foto.url) if perfil.foto else None
         if hasattr(request.user, 'person_profile') and request.user.user_type == 'PF':
             nome_completo = request.user.person_profile.name or request.user.get_full_name() or request.user.username
-        elif hasattr(request.user, 'company_profile') and request.user.user_type == 'PJ':
+        elif hasattr(request.user, 'company_profile') and request.user.user_type in ('PJ', 'PFE'):
             nome_completo = request.user.company_profile.responsible_name or request.user.company_profile.company_name or request.user.get_full_name() or request.user.username
         else:
             nome_completo = request.user.get_full_name() or request.user.username
@@ -100,7 +100,7 @@ def atualizar_nome(request):
         user.person_profile.save()
         print(f"[DEBUG] Nome atualizado para: {user.person_profile.name}")
         return Response({'message': 'Nome atualizado com sucesso', 'nome_completo': user.person_profile.name})
-    elif hasattr(user, 'company_profile') and user.user_type == 'PJ':
+    elif hasattr(user, 'company_profile') and user.user_type in ('PJ', 'PFE'):
         print(f"[DEBUG] Atualizando nome do responsável PJ: antes={user.company_profile.responsible_name}")
         user.company_profile.responsible_name = novo_nome
         user.company_profile.save()

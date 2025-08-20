@@ -179,6 +179,7 @@ class DashboardAPIView(views.APIView):
             # Calcula dados de comparação baseado no tipo selecionado
             if filter_type == 'mes' and month:
                 comparison_metrics = {}
+                comparison_queryset = None  # Inicializa a variável
                 
                 if comparison_type == 'mes_anterior':
                     # Compara com o mês anterior
@@ -226,10 +227,34 @@ class DashboardAPIView(views.APIView):
                         empresa=empresa,
                         **plataforma_filter
                     )
+                    
+                elif comparison_type == 'ano_anterior':
+                    # Compara com o mesmo mês do ano anterior
+                    comparison_queryset = self.get_queryset().filter(
+                        ano=year - 1,
+                        data__month=month,
+                        empresa=empresa,
+                        **plataforma_filter
+                    )
+                    
+                elif comparison_type == 'ano_especifico':
+                    # Compara com o mesmo mês de um ano específico
+                    comparison_year = request.query_params.get('comparisonYear')
+                    if not comparison_year:
+                        comparison_year = year - 1  # Fallback para ano anterior
+                    else:
+                        comparison_year = int(comparison_year)
+                    
+                    comparison_queryset = self.get_queryset().filter(
+                        ano=comparison_year,
+                        data__month=month,
+                        empresa=empresa,
+                        **plataforma_filter
+                    )
                 
                 # Calcula métricas de comparação
                 comparison_metrics = None
-                if comparison_queryset.exists():
+                if comparison_queryset and comparison_queryset.exists():
                     if comparison_type == 'media_ano':
                         # Para média do ano, calcula a média dos meses
                         comparison_data = comparison_queryset.values('data__month').annotate(

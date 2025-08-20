@@ -45,6 +45,7 @@ class EmpresaViewSet(viewsets.ModelViewSet):
             return Response({'error': 'Erro ao criar empresa'}, status=status.HTTP_400_BAD_REQUEST)
 
     def update(self, request, *args, **kwargs):
+        kwargs['partial'] = True
         try:
             return super().update(request, *args, **kwargs)
         except ValidationError as e:

@@ -137,9 +137,12 @@ class EmpresaSerializer(serializers.ModelSerializer):
         return value
 
     def validate_telefone1(self, value):
-        if not re.match(r'^\d{10,11}$', value):
+        if not value:
+            return value
+        cleaned_value = re.sub(r'\D', '', value)
+        if not re.match(r'^\d{10,11}$', cleaned_value):
             raise serializers.ValidationError('Telefone deve conter 10 ou 11 dígitos numéricos')
-        return value
+        return cleaned_value
 
     def validate_email_comercial(self, value):
         if not re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', value):

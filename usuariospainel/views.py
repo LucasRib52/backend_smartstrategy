@@ -19,7 +19,7 @@ class IsCompanyOwner(IsAuthenticated):
     Permissão personalizada para verificar se o usuário é dono da empresa
     """
     def has_permission(self, request, view):
-        return super().has_permission(request, view) and request.user.user_type == 'PJ'
+        return super().has_permission(request, view) and request.user.user_type in ('PJ', 'PFE')
 
 class UserCompanyLinkListView(generics.ListAPIView):
     """
@@ -34,7 +34,7 @@ class UserCompanyLinkListView(generics.ListAPIView):
         print(f"[VIEW] Empresa ID: {getattr(self.request, 'empresa_id', None)}")
         print(f"[VIEW] Empresa Atual: {getattr(self.request.user, 'empresa_atual', None)}")
 
-        if self.request.user.user_type == 'PJ':
+        if self.request.user.user_type in ('PJ', 'PFE'):
             if hasattr(self.request, 'empresa_id'):
                 return UserCompanyLink.objects.filter(empresa_id=self.request.empresa_id)
             if self.request.user.empresa_atual:

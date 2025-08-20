@@ -10,6 +10,7 @@ class User(AbstractUser):
     USER_TYPE_CHOICES = (
         ('PF', 'Pessoa Física'),
         ('PJ', 'Pessoa Jurídica'),
+        ('PFE', 'Pessoa Física Empresarial'),
     )
 
     # Sobrescrevendo campos do AbstractUser para torná-los opcionais
@@ -24,9 +25,9 @@ class User(AbstractUser):
     )
     user_type = models.CharField(
         'Tipo de Usuário',
-        max_length=2,
+        max_length=3,
         choices=USER_TYPE_CHOICES,
-        help_text='Tipo de usuário (PF ou PJ)'
+        help_text='Tipo de usuário (PF, PJ ou PFE)'
     )
     empresa_atual = models.ForeignKey(
         'empresas.Empresa',
@@ -37,6 +38,18 @@ class User(AbstractUser):
         verbose_name=_('Empresa Atual')
     )
 
+    # Controle de primeira sessão
+    first_login_completed = models.BooleanField(
+        'Primeiro Login Completo',
+        default=False,
+        help_text='Indica se o usuário já completou sua primeira sessão no sistema'
+    )
+    email_verified = models.BooleanField(
+        'Email Verificado',
+        default=False,
+        help_text='Indica se o email do usuário foi verificado'
+    )
+
     # Campos de auditoria
     created_at = models.DateTimeField(
         'Criado em',
@@ -45,6 +58,26 @@ class User(AbstractUser):
     updated_at = models.DateTimeField(
         'Atualizado em',
         auto_now=True
+    )
+
+    # Termos de uso
+    terms_accepted = models.BooleanField(
+        'Termos aceitos',
+        default=False,
+        help_text='Indica se o usuário aceitou os termos de uso vigentes no momento do cadastro'
+    )
+    terms_accepted_at = models.DateTimeField(
+        'Termos aceitos em',
+        null=True,
+        blank=True,
+        help_text='Data/hora do aceite dos termos de uso'
+    )
+    terms_version = models.CharField(
+        'Versão dos Termos',
+        max_length=20,
+        null=True,
+        blank=True,
+        help_text='Versão dos termos de uso aceitos'
     )
 
     # Configurações do modelo
@@ -251,6 +284,36 @@ class CompanyProfile(models.Model):
         return f'Perfil de {self.company_name}'
 
     def save(self, *args, **kwargs):
-        if self.user.user_type != 'PJ':
-            raise ValueError('Este perfil só pode ser associado a usuários do tipo Pessoa Jurídica')
+        if self.user.user_type not in ('PJ', 'PFE'):
+            raise ValueError('Este perfil só pode ser associado a usuários do tipo Pessoa Jurídica ou Pessoa Física Empresarial')
         super().save(*args, **kwargs)
+
+
+class EmailVerificationCode(models.Model):
+    """
+    Códigos de verificação para confirmação de registro e recuperação de senha.
+    """
+    CODE_TYPE_CHOICES = (
+        ('registration', 'Confirmação de Registro'),
+        ('password_reset', 'Recuperação de Senha'),
+    )
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='verification_codes',
+        verbose_name='Usuário'
+    )
+    code = models.CharField('Código', max_length=6, help_text='Código numérico de 6 dígitos')
+    code_type = models.CharField('Tipo de Código', max_length=20, choices=CODE_TYPE_CHOICES)
+    is_used = models.BooleanField('Usado', default=False, help_text='Marca o código como utilizado')
+    created_at = models.DateTimeField('Criado em', auto_now_add=True)
+    expires_at = models.DateTimeField('Expira em')
+
+    class Meta:
+        verbose_name = 'Código de Verificação de Email'
+        verbose_name_plural = 'Códigos de Verificação de Email'
+        ordering = ['-created_at']
+
+    def __str__(self) -> str:
+        return f"{self.code} - {self.user.email} ({self.code_type})"

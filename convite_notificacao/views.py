@@ -26,8 +26,8 @@ class ConviteUsuarioViewSet(viewsets.ModelViewSet):
         """
         queryset = ConviteUsuario.objects.all()
         
-        # Se for PJ, mostra apenas convites da empresa atual
-        if self.request.user.user_type == 'PJ':
+        # Se for PJ ou PFE, mostra apenas convites da empresa atual
+        if self.request.user.user_type in ('PJ', 'PFE'):
             empresa = self.request.user.empresa_atual
             if not empresa:
                 return ConviteUsuario.objects.none()
@@ -40,8 +40,8 @@ class ConviteUsuarioViewSet(viewsets.ModelViewSet):
         """
         Cria um novo convite
         """
-        # Apenas PJ pode criar convites
-        if self.request.user.user_type != 'PJ':
+        # Apenas PJ/PFE pode criar convites
+        if self.request.user.user_type not in ('PJ', 'PFE'):
             raise ValueError("Apenas usuários PJ podem enviar convites")
             
         empresa = self.request.user.empresa_atual

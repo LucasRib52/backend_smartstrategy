@@ -10,17 +10,17 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.getenv('SECRET_KEY', 'dev-insecure-secret')
+SECRET_KEY = 'django-insecure-=+p$5yp11)h9a)aem+gtg*$n@9i5=mb48w$+jyuxuhvjl*#8os'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv('DEBUG', 'False') == 'True'
+DEBUG = True
 
-ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '*').split(',')
+ALLOWED_HOSTS = ['*']
 
-# Asaas Configuration (não deixe segredos hardcoded em produção)
-ASAAS_API_KEY = os.getenv('ASAAS_API_KEY')
+# Asaas Configuration
+ASAAS_API_KEY = os.getenv('ASAAS_API_KEY', '$aact_hmlg_000MzkwODA2MWY2OGM3MWRlMDU2NWM3MzJlNzZmNGZhZGY6OmUwZmNiNWZmLWYxMzYtNDkzMS1hN2ExLTUyYTA4OWJkNzUzYzo6JGFhY2hfNTM5MTBkYWItODM0MS00NTIwLWI5NDQtNjJlYWQxZGYzMDhm')
 ASAAS_API_URL = os.getenv('ASAAS_API_URL', 'https://sandbox.asaas.com/api/v3')
-ASAAS_WEBHOOK_SECRET = os.getenv('ASAAS_WEBHOOK_SECRET')
+ASAAS_WEBHOOK_SECRET = os.getenv('ASAAS_WEBHOOK_SECRET', 'WEBHOOK_SECRET_SZrj9MVbMbDbdfWohe6O80k-H1Jp5YNIF1JEDdbHvAE')
 
 
 # Application definition
@@ -51,6 +51,7 @@ INSTALLED_APPS = [
     'permissoes',
     'ai_marketing_agent',
     'asaas',
+    'influencer',
 ]
 
 MIDDLEWARE = [
@@ -211,7 +212,7 @@ CSRF_COOKIE_SAMESITE = 'Lax'
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
-] + ([o for o in os.getenv('CSRF_TRUSTED_ORIGINS', '').split(',') if o] if os.getenv('CSRF_TRUSTED_ORIGINS') else [])
+]
 
 # Configurações de Sessão (mantendo apenas para admin)
 SESSION_ENGINE = 'django.contrib.sessions.backends.db'
@@ -238,3 +239,12 @@ if not DEBUG:
     SECURE_CONTENT_TYPE_NOSNIFF = True
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+
+# Força SMTP local com credenciais do SmartStrategy (atenção: use senha de app em produção)
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = 'smtp.gmail.com'
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = 'ss.smartstrategy@gmail.com'
+EMAIL_HOST_PASSWORD = 'vxnw kxmf madm lflv'  # Senha de app do Gmail
+DEFAULT_FROM_EMAIL = 'SmartStrategy <ss.smartstrategy@gmail.com>'

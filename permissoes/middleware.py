@@ -17,6 +17,13 @@ class PermissaoMiddleware(MiddlewareMixin):
             '/api/accounts/token/refresh/',
             '/api/accounts/token/verify/',
             '/api/accounts/register/',
+            '/api/accounts/register/person/',
+            '/api/accounts/register/company/',
+            '/api/accounts/register/person-empresarial/',
+            '/api/accounts/send-verification-code/',
+            '/api/accounts/verify-code/',
+            '/api/accounts/forgot-password/',
+            '/api/accounts/reset-password/',
             '/api/auth/',
             '/api/accounts/login/',
             '/api/accounts/logout/',
@@ -52,9 +59,9 @@ class PermissaoMiddleware(MiddlewareMixin):
             logger.info("[PERMISSAO] Superusuário — acesso total")
             return None
 
-        # Se o usuário é PJ, tem acesso total
-        if request.user.user_type == 'PJ':
-            logger.info(f"[PERMISSAO] Usuário PJ tem acesso total")
+        # Se o usuário é PJ ou PFE, tem acesso total
+        if request.user.user_type in ('PJ', 'PFE'):
+            logger.info(f"[PERMISSAO] Usuário {request.user.user_type} tem acesso total")
             return None
 
         # Se não tiver empresa definida no request, permite o acesso

@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SmartStrategy</title>
+    <style>
+      body { margin: 0; padding: 0; background: #f6f8fb; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+      .ss-card { max-width: 600px; margin: 30px auto; background: #ffffff; border-radius: 20px; overflow: hidden; box-shadow: 0 15px 40px rgba(17, 24, 39, 0.12); }
+      .ss-header { background: linear-gradient(135deg, #5b73f0, #6366f1); padding: 40px 30px; color: #fff; text-align: center; position: relative; }
+      .ss-logo { width: 120px; height: 120px; margin: 0 auto 20px; display: block; background: rgba(255,255,255,0.15); border-radius: 20px; padding: 15px; border: 3px solid rgba(255,255,255,0.2); box-shadow: 0 8px 32px rgba(0,0,0,0.1); }
+      .ss-title { margin: 0; font-size: 26px; font-weight: 700; letter-spacing: -0.5px; }
+      .ss-subtitle { margin: 8px 0 0; font-size: 14px; opacity: 0.9; font-weight: 400; }
+      .ss-body { padding: 40px 30px; color: #1f2937; }
+      .ss-greet { margin: 0 0 16px; font-size: 18px; font-weight: 600; color: #111827; }
+      .ss-desc { margin: 0 0 24px; font-size: 16px; color: #4b5563; line-height: 1.7; }
+      .ss-code-box { text-align: center; margin: 30px 0; background: #f8fafc; padding: 24px; border-radius: 16px; border: 2px solid #e5e7eb; }
+      .ss-code-label { font-size: 14px; color: #6b7280; margin-bottom: 12px; font-weight: 500; }
+      .ss-code { display: block; letter-spacing: 8px; font-weight: 900; font-size: 32px; color: #5b73f0; font-family: 'Courier New', monospace; }
+      .ss-footer { font-size: 13px; color: #6b7280; text-align: center; padding: 30px; border-top: 1px solid #e5e7eb; background: #f9fafb; }
+      .ss-small { color: #9ca3af; font-size: 13px; margin-top: 20px; }
+      .ss-brand { color: #5b73f0; font-weight: 600; }
+    </style>
+  </head>
+  <body>
+    <div class="ss-card">
+      <div class="ss-header">
+        
+        <h1 class="ss-title">SmartStrategy</h1>
+        <p class="ss-subtitle">Plataforma de Marketing Inteligente</p>
+      </div>
+      <div class="ss-body">
+        <p class="ss-greet">Olá,</p>
+        {% if code_type == 'registration' %}
+          <p class="ss-desc">Obrigado por se registrar na SmartStrategy. Para concluir seu cadastro, use o código abaixo:</p>
+        {% else %}
+          <p class="ss-desc">Você solicitou a redefinição da sua senha. Use o código abaixo para continuar:</p>
+        {% endif %}
+
+        <div class="ss-code-box">
+          <div class="ss-code-label">Seu código de verificação:</div>
+          <div class="ss-code">{{ code }}</div>
+        </div>
+
+        <p class="ss-desc ss-small">Este código expira em {{ expires_minutes }} minutos. Se você não solicitou, apenas ignore este e-mail.</p>
+      </div>
+      <div class="ss-footer">
+        <p><strong class="ss-brand">Equipe SmartStrategy</strong></p>
+        <p style="margin-top: 12px; font-size: 12px;">© 2025 SmartStrategy. Todos os direitos reservados.</p>
+      </div>
+    </div>
+  </body>
+  </html>
+
+
