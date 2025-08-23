@@ -508,12 +508,12 @@ class AsaasService:
         """Lista assinaturas de um cliente no Asaas."""
         return self._make_request('GET', f'subscriptions?customer={asaas_customer_id}')
 
-    def list_customer_payments(self, asaas_customer_id: str, limit: int = 100, status_filter: Optional[str] = None) -> Dict[str, Any]:
+    def list_customer_payments(self, asaas_customer_id: str, limit: int = 100, offset: int = 0, status_filter: Optional[str] = None) -> Dict[str, Any]:
         """
         Lista cobranças (payments) do cliente no Asaas, mais recente primeiro.
         status_filter pode ser: PENDING, CONFIRMED, RECEIVED, OVERDUE, etc.
         """
-        params = [f"customer={asaas_customer_id}", f"limit={max(1, min(limit, 100))}", "offset=0", "orderBy=dueDate", "sort=DESC"]
+        params = [f"customer={asaas_customer_id}", f"limit={max(1, min(limit, 100))}", f"offset={offset}", "orderBy=dueDate", "sort=DESC"]
         if status_filter:
             params.append(f"status={status_filter}")
         query = "&".join(params)

@@ -315,8 +315,12 @@ class AsaasPaymentsView(APIView):
             if not empresa.asaas_customer_id:
                 return Response({'payments': [], 'total': 0})
 
+            # Parâmetros de paginação
+            offset = int(request.query_params.get('offset', 0))
+            limit = min(int(request.query_params.get('limit', 20)), 100)  # Máximo 100 por vez
+
             asaas = AsaasService()
-            raw = asaas.list_customer_payments(empresa.asaas_customer_id, limit=100)
+            raw = asaas.list_customer_payments(empresa.asaas_customer_id, limit=limit, offset=offset)
             items = raw.get('data', []) if isinstance(raw, dict) else []
 
             def _format_payment(p):
