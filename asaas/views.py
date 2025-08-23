@@ -10,6 +10,7 @@ from django.conf import settings
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
 from .services import AsaasService
 from .models import AsaasWebhook
 
@@ -298,6 +299,83 @@ class AsaasWebhookListView(APIView):
                 {'error': 'Erro ao listar webhooks'}, 
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+class AsaasPaymentsView(APIView):
+    """
+    Lista pagamentos (cobranças) do cliente no Asaas e retorna num formato
+    próprio para o frontend de histórico de pagamentos.
+    """
+    permission_classes = [IsAuthenticated]
+    def get(self, request):
+        try:
+            empresa = getattr(request.user, 'empresa_atual', None)
+            if not empresa:
+                return Response({'error': 'Empresa não encontrada'}, status=status.HTTP_404_NOT_FOUND)
+            if not empresa.asaas_customer_id:
+                return Response({'payments': [], 'total': 0})
+
+            asaas = AsaasService()
+            raw = asaas.list_customer_payments(empresa.asaas_customer_id, limit=100)
+            items = raw.get('data', []) if isinstance(raw, dict) else []
+
+            def _format_payment(p):
+                status_map = {
+                    'RECEIVED': 'Pago',
+                    'CONFIRMED': 'Pago',
+                    'PENDING': 'Pendente',
+                    'OVERDUE': 'Atrasado',
+                    'CANCELLED': 'Cancelado',
+                    'REFUNDED': 'Estornado',
+                }
+                desc = p.get('description') or 'Assinatura'
+                method = (p.get('billingType') or '').replace('_', ' ').title()
+                invoice_number = p.get('invoiceNumber') or p.get('id')
+                due_date = p.get('dueDate')
+                paid_date = p.get('confirmedDate') or p.get('paymentDate')
+                amount = float(p.get('value') or 0)
+                status_label = status_map.get(str(p.get('status')).upper(), str(p.get('status')).title())
+                return {
+                    'id': p.get('id'),
+                    'date': p.get('dateCreated') or due_date,
+                    'description': desc,
+                    'amount': amount,
+                    'status': status_label,
+                    'invoiceNumber': invoice_number,
+                    'paymentMethod': method,
+                    'dueDate': due_date,
+                    'paidDate': paid_date,
+                    'invoiceUrl': p.get('invoiceUrl'),
+                    'bankSlipUrl': p.get('bankSlipUrl'),
+                    'canDownloadInvoice': bool(p.get('invoiceUrl')),
+                }
+
+            payments = [_format_payment(p) for p in items]
+            return Response({'payments': payments, 'total': len(payments)}, status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.error(f"Erro ao listar pagamentos: {str(e)}")
+            return Response({'error': 'Erro ao listar pagamentos'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class AsaasPaymentInvoiceView(APIView):
+    """
+    Retorna URL de nota fiscal/recibo do pagamento, se disponível no Asaas.
+    Observação: Asaas não gera NF-e por padrão. O usual é invoiceUrl/bankSlipUrl.
+    Se houver integração fiscal, retornaríamos o link da NF-e aqui.
+    """
+    permission_classes = [IsAuthenticated]
+    def get(self, request, payment_id: str):
+        try:
+            asaas = AsaasService()
+            data = asaas.get_payment(payment_id)
+            # Preferência: invoiceUrl; fallback: bankSlipUrl
+            url = data.get('invoiceUrl') or data.get('bankSlipUrl')
+            if not url:
+                return Response({'error': 'Sem documento para download'}, status=status.HTTP_404_NOT_FOUND)
+            return Response({'url': url})
+        except Exception as e:
+            logger.error(f"Erro ao obter invoice do pagamento {payment_id}: {str(e)}")
+            return Response({'error': 'Erro ao obter invoice'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class AsaasSimulateSubscriptionView(APIView):

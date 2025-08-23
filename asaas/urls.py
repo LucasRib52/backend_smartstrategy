@@ -5,7 +5,9 @@ from .views import (
     AsaasCustomerView,
     AsaasSubscriptionView,
     AsaasWebhookListView,
-    AsaasSimulateSubscriptionView
+    AsaasSimulateSubscriptionView,
+    AsaasPaymentsView,
+    AsaasPaymentInvoiceView,
 )
 
 app_name = 'asaas'
@@ -18,4 +20,6 @@ urlpatterns = [
     path('subscriptions/<str:subscription_id>/', AsaasSubscriptionView.as_view(), name='subscription_detail'),
     path('webhooks/list/', AsaasWebhookListView.as_view(), name='webhook_list'),
     path('simulate/subscription/', AsaasSimulateSubscriptionView.as_view(), name='simulate_subscription'),
+    path('payments/', AsaasPaymentsView.as_view(), name='payments'),
+    path('payments/<str:payment_id>/invoice/', AsaasPaymentInvoiceView.as_view(), name='payment_invoice'),
 ] 
