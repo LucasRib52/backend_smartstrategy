@@ -9,18 +9,19 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
 
+
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-=+p$5yp11)h9a)aem+gtg*$n@9i5=mb48w$+jyuxuhvjl*#8os'
+SECRET_KEY = os.getenv('SECRET_KEY', 'dev-insecure-secret')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv('DEBUG', 'False') == 'True'
 
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '*').split(',')
 
-# Asaas Configuration
-ASAAS_API_KEY = os.getenv('ASAAS_API_KEY', '$aact_hmlg_000MzkwODA2MWY2OGM3MWRlMDU2NWM3MzJlNzZmNGZhZGY6OmUwZmNiNWZmLWYxMzYtNDkzMS1hN2ExLTUyYTA4OWJkNzUzYzo6JGFhY2hfNTM5MTBkYWItODM0MS00NTIwLWI5NDQtNjJlYWQxZGYzMDhm')
+# Asaas Configuration (não deixe segredos hardcoded em produção)
+ASAAS_API_KEY = os.getenv('ASAAS_API_KEY')
 ASAAS_API_URL = os.getenv('ASAAS_API_URL', 'https://sandbox.asaas.com/api/v3')
-ASAAS_WEBHOOK_SECRET = os.getenv('ASAAS_WEBHOOK_SECRET', 'WEBHOOK_SECRET_SZrj9MVbMbDbdfWohe6O80k-H1Jp5YNIF1JEDdbHvAE')
+ASAAS_WEBHOOK_SECRET = os.getenv('ASAAS_WEBHOOK_SECRET')
 
 
 # Application definition
