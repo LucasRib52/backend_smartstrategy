@@ -8,6 +8,7 @@ class ModuloPermissao(models.Model):
     MODULOS_CHOICES = (
         ('marketing', 'Marketing'),
         ('financeiro', 'Financeiro'),
+        ('influencer', 'Influencer'),
     )
 
     codigo = models.CharField(

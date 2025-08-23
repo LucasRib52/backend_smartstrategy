@@ -2,7 +2,7 @@ from django.core.management.base import BaseCommand
 from permissoes.models import ModuloPermissao
 
 class Command(BaseCommand):
-    help = 'Cria os módulos iniciais do sistema (Marketing e Financeiro)'
+    help = 'Cria os módulos iniciais do sistema (Marketing, Financeiro e Influencer)'
 
     def handle(self, *args, **options):
         modulos = [
@@ -16,6 +16,12 @@ class Command(BaseCommand):
                 'codigo': 'financeiro',
                 'nome': 'Financeiro',
                 'descricao': 'Módulo de gestão financeira e contábil',
+                'ativo': True
+            },
+            {
+                'codigo': 'influencer',
+                'nome': 'Influencer',
+                'descricao': 'Módulo de gestão de influenciadores e campanhas',
                 'ativo': True
             }
         ]
