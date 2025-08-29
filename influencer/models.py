@@ -3,6 +3,8 @@ from django.conf import settings
 import uuid
 from decimal import Decimal
 from django.utils.text import slugify
+from PIL import Image
+import os
 from django.utils import timezone
 
 
@@ -121,6 +123,46 @@ class Loja(models.Model):
             counter += 1
             
         super().save(*args, **kwargs)
+        # Otimiza imagens após salvar o arquivo fisicamente
+        self._optimize_image_field(self.logo_layout, max_width=512, max_height=512)
+        self._optimize_image_field(self.banner_layout, max_width=1600, max_height=900)
+
+    @staticmethod
+    def _optimize_image_field(image_field, max_width: int, max_height: int, jpeg_quality: int = 85) -> None:
+        try:
+            if not image_field or not getattr(image_field, 'path', None):
+                return
+            if not os.path.exists(image_field.path):
+                return
+            # Evita custo para arquivos já pequenos
+            if os.path.getsize(image_field.path) < 300 * 1024:  # 300KB
+                return
+
+            with Image.open(image_field.path) as im:
+                im_format = (im.format or '').upper()
+                width, height = im.size
+
+                # Redimensiona mantendo proporção se exceder limites
+                scale = min(max_width / float(width), max_height / float(height), 1.0)
+                if scale < 1.0:
+                    new_size = (int(width * scale), int(height * scale))
+                    im = im.resize(new_size, Image.LANCZOS)
+
+                save_kwargs = {"optimize": True}
+                if im_format in ("JPEG", "JPG"):
+                    if im.mode in ("RGBA", "P"):
+                        im = im.convert("RGB")
+                    save_kwargs.update({"quality": jpeg_quality, "progressive": True})
+                    im.save(image_field.path, format="JPEG", **save_kwargs)
+                elif im_format == "PNG":
+                    # Para PNG apenas otimiza e mantém transparência
+                    im.save(image_field.path, format="PNG", **save_kwargs)
+                else:
+                    # Formatos diversos: tenta salvar no formato original
+                    im.save(image_field.path, **save_kwargs)
+        except Exception:
+            # Nunca quebra a persistência por causa de otimização
+            pass
 
 
 class LojaParceira(models.Model):
@@ -153,6 +195,11 @@ class LojaParceira(models.Model):
 
     def __str__(self) -> str:
         return f"{self.nome}"
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        # Otimiza a logo da loja parceira
+        Loja._optimize_image_field(self.logo, max_width=512, max_height=512)
 
 class Produto(models.Model):
     STATUS_CHOICES = (
@@ -189,6 +236,11 @@ class Produto(models.Model):
 
     def __str__(self) -> str:
         return self.nome
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        # Otimiza imagem do produto
+        Loja._optimize_image_field(self.imagem, max_width=800, max_height=800)
 
 
 class Venda(models.Model):
