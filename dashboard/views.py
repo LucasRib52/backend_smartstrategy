@@ -1,5 +1,6 @@
 from venda.models import Venda
 from datetime import datetime
+from django.core.cache import cache
 import calendar
 from django.db.models import Sum, Avg, Count, Q
 from rest_framework import views
@@ -61,11 +62,25 @@ class DashboardAPIView(views.APIView):
             filter_type = serializer.validated_data['filterType']
 
             empresa = getattr(self.request, 'empresa', None)
+
+            # Cache leve por combinação de filtros mais comuns (evita recalcular por 60s)
+            cache_key = f"dash:v1:{getattr(empresa, 'id', 'anon')}:{year}:{month}:{filter_type}:{request.query_params.get('plataforma')}:" \
+                        f"{comparison_type}:{request.query_params.get('comparisonMonth')}:{request.query_params.get('comparisonYear')}"
+            cached = cache.get(cache_key)
+            if cached is not None:
+                return Response(cached)
+
             queryset = self.get_queryset().filter(ano=year)
             
-            # Só filtra por mês se não for filtro anual
+            # Só filtra por mês se não for filtro anual (usa range para aproveitar índice por data)
             if month and filter_type != 'ano':
-                queryset = queryset.filter(data__month=month)
+                # Intervalo: [primeiro dia do mês, primeiro dia do próximo mês)
+                start = datetime(year, month, 1)
+                if month == 12:
+                    end = datetime(year + 1, 1, 1)
+                else:
+                    end = datetime(year, month + 1, 1)
+                queryset = queryset.filter(data__gte=start.date(), data__lt=end.date())
 
             plataforma = request.query_params.get('plataforma')
             if plataforma == 'google':
@@ -487,9 +502,17 @@ class DashboardAPIView(views.APIView):
             if filter_type == 'mes' and month:
                 try:
                     # Dados semanais do mês atual
+                    # Usa range para aproveitar índice por data
+                    start = datetime(year, month, 1)
+                    if month == 12:
+                        end = datetime(year + 1, 1, 1)
+                    else:
+                        end = datetime(year, month + 1, 1)
+
                     weekly_data_current = Venda.objects.filter(
                         ano=year,
-                        data__month=month,
+                        data__gte=start.date(),
+                        data__lt=end.date(),
                         empresa=empresa,
                         **plataforma_filter
                     ).values('semana').annotate(
@@ -504,9 +527,17 @@ class DashboardAPIView(views.APIView):
                         previous_month = 12
                         previous_year = year - 1
                     
+                    # Range do mês anterior
+                    prev_start = datetime(previous_year, previous_month, 1)
+                    if previous_month == 12:
+                        prev_end = datetime(previous_year + 1, 1, 1)
+                    else:
+                        prev_end = datetime(previous_year, previous_month + 1, 1)
+
                     weekly_data_previous = Venda.objects.filter(
                         ano=previous_year,
-                        data__month=previous_month,
+                        data__gte=prev_start.date(),
+                        data__lt=prev_end.date(),
                         empresa=empresa,
                         **plataforma_filter
                     ).values('semana').annotate(
@@ -602,6 +633,8 @@ class DashboardAPIView(views.APIView):
                 })
 
             serializer = DashboardDataSerializer(response_data)
+            # Armazena no cache (TTL curto para não desatualizar o dashboard)
+            cache.set(cache_key, serializer.data, timeout=60)
             return Response(serializer.data)
 
         except Exception as e:
