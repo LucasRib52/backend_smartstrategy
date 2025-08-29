@@ -9,19 +9,18 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
 
-
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.getenv('SECRET_KEY', 'dev-insecure-secret')
+SECRET_KEY = 'django-insecure-=+p$5yp11)h9a)aem+gtg*$n@9i5=mb48w$+jyuxuhvjl*#8os'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv('DEBUG', 'False') == 'True'
+DEBUG = True
 
-ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '*').split(',')
+ALLOWED_HOSTS = ['*']
 
-# Asaas Configuration (não deixe segredos hardcoded em produção)
-ASAAS_API_KEY = os.getenv('ASAAS_API_KEY')
+# Asaas Configuration
+ASAAS_API_KEY = os.getenv('ASAAS_API_KEY', '$aact_hmlg_000MzkwODA2MWY2OGM3MWRlMDU2NWM3MzJlNzZmNGZhZGY6OmUwZmNiNWZmLWYxMzYtNDkzMS1hN2ExLTUyYTA4OWJkNzUzYzo6JGFhY2hfNTM5MTBkYWItODM0MS00NTIwLWI5NDQtNjJlYWQxZGYzMDhm')
 ASAAS_API_URL = os.getenv('ASAAS_API_URL', 'https://sandbox.asaas.com/api/v3')
-ASAAS_WEBHOOK_SECRET = os.getenv('ASAAS_WEBHOOK_SECRET')
+ASAAS_WEBHOOK_SECRET = os.getenv('ASAAS_WEBHOOK_SECRET', 'WEBHOOK_SECRET_SZrj9MVbMbDbdfWohe6O80k-H1Jp5YNIF1JEDdbHvAE')
 
 
 # Application definition
@@ -92,12 +91,32 @@ WSGI_APPLICATION = 'app.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+# Configuração do banco de dados
+# Em desenvolvimento usa SQLite, em produção usa MySQL
+if os.getenv('DJANGO_ENV') == 'production':
+    # Configuração MySQL para produção (PythonAnywhere)
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.mysql',
+            'NAME': 'smartstrategy$smartstrategy',  # Nome do banco no PythonAnywhere
+            'USER': 'smartstrategy',  # Seu username do PythonAnywhere
+            'PASSWORD': os.getenv('DB_PASSWORD', ''),  # Senha do MySQL (configurar no PythonAnywhere)
+            'HOST': 'smartstrategy.mysql.pythonanywhere-services.com',  # Host do PythonAnywhere
+            'PORT': '3306',  # Porta padrão MySQL
+            'OPTIONS': {
+                'charset': 'utf8mb4',
+                'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
+            },
+        }
     }
-}
+else:
+    # Configuração SQLite para desenvolvimento
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
 
 
 # Password validation

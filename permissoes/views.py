@@ -131,6 +131,10 @@ class UserPermissaoViewSet(viewsets.ViewSet):
         if isinstance(user_link, Response):
             return user_link
         
+        print(f"[DEBUG UPDATE] Atualizando permissões para usuário {user_link.user.email}")
+        print(f"[DEBUG UPDATE] Dados recebidos: {request.data}")
+        print(f"[DEBUG UPDATE] Permissões recebidas: {request.data.get('permissions', {})}")
+        
         # Garante que o campo permissions seja um dicionário
         if not isinstance(user_link.permissions, dict):
             user_link.permissions = {}
@@ -139,6 +143,8 @@ class UserPermissaoViewSet(viewsets.ViewSet):
         permissoes_atualizadas = {
             'modulos': request.data.get('permissions', {}).get('modulos', {})
         }
+        
+        print(f"[DEBUG UPDATE] Permissões finais: {permissoes_atualizadas}")
         
         # Atualiza as permissões
         user_link.permissions = permissoes_atualizadas
