@@ -71,12 +71,21 @@ class Plano(models.Model):
 
 
 # Signal para criar produto no Asaas quando plano for criado/atualizado
+def _should_call_asaas(raw: bool = False) -> bool:
+    # Skip during loaddata (raw=True) and when toggle is off
+    if raw:
+        return False
+    return bool(getattr(settings, "ASAAS_ENABLED", False))
+
+
 @receiver(post_save, sender=Plano)
 def create_asaas_product(sender, instance, created, **kwargs):
     """
     Cria produto no Asaas quando plano for criado ou atualizado
     """
     try:
+        if not _should_call_asaas(raw=kwargs.get("raw", False)):
+            return
         # Só cria produto no Asaas se o plano for pago (preco > 0)
         if instance.preco > 0 and instance.ativo:
             from asaas.services import AsaasService

@@ -20,8 +20,11 @@ ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '*').split(',')
 
 # Asaas Configuration (não deixe segredos hardcoded em produção)
 ASAAS_API_KEY = os.getenv('ASAAS_API_KEY')
-ASAAS_API_URL = os.getenv('ASAAS_API_URL', 'https://sandbox.asaas.com/api/v3')
+# Base URL correta para sandbox por padrão; pode ser sobrescrita por env
+ASAAS_API_URL = os.getenv('ASAAS_API_URL', 'https://api-sandbox.asaas.com/v3')
 ASAAS_WEBHOOK_SECRET = os.getenv('ASAAS_WEBHOOK_SECRET')
+# Toggle de integração (desligue durante importações/fixtures)
+ASAAS_ENABLED = os.getenv('ASAAS_ENABLED', 'false').lower() == 'true'
 
 
 # Application definition

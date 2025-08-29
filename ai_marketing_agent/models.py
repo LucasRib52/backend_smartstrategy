@@ -55,6 +55,11 @@ class MarketingData(models.Model):
         verbose_name_plural = "Dados de Marketing"
     
     def save(self, *args, **kwargs):
+        # Normaliza campos que compõem a unique_together para reduzir colisões
+        if self.campaign_name:
+            self.campaign_name = self.campaign_name.strip()
+        if self.platform:
+            self.platform = self.platform.strip().lower()
         # Atualiza campos temporais
         if self.data:
             self.semana = str(self.data.isocalendar().week)
