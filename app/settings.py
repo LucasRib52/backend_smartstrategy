@@ -94,7 +94,7 @@ WSGI_APPLICATION = 'app.wsgi.application'
 
 # Configuração do banco de dados
 # Em desenvolvimento usa SQLite, em produção usa MySQL
-if os.getenv('DJANGO_ENV') == 'production':
+if os.getenv('DJANGO_ENV') == 'production' or 'pythonanywhere' in os.getenv('HOSTNAME', ''):
     # Configuração MySQL para produção (PythonAnywhere)
     DATABASES = {
         'default': {
