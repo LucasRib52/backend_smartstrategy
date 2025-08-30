@@ -100,6 +100,7 @@ class Loja(models.Model):
     # Novos campos para imagens do layout (upload em media/influencer/layout/...)
     logo_layout = models.ImageField(upload_to='influencer/layout/logos/', blank=True, null=True)
     banner_layout = models.ImageField(upload_to='influencer/layout/banners/', blank=True, null=True)
+    profile_layout = models.ImageField(upload_to='influencer/layout/profiles/', blank=True, null=True)
 
     class Meta:
         verbose_name = "Loja"
@@ -126,6 +127,7 @@ class Loja(models.Model):
         # Otimiza imagens após salvar o arquivo fisicamente
         self._optimize_image_field(self.logo_layout, max_width=512, max_height=512)
         self._optimize_image_field(self.banner_layout, max_width=1600, max_height=900)
+        self._optimize_image_field(self.profile_layout, max_width=600, max_height=600)
 
     @staticmethod
     def _optimize_image_field(image_field, max_width: int, max_height: int, jpeg_quality: int = 85) -> None:

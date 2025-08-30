@@ -42,6 +42,8 @@ class InfluencerSerializer(serializers.ModelSerializer):
 class LojaSerializer(serializers.ModelSerializer):
     logo_layout_url = serializers.SerializerMethodField()
     banner_layout_url = serializers.SerializerMethodField()
+    profile_layout_url = serializers.SerializerMethodField()
+    profile_image_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Loja
@@ -58,8 +60,11 @@ class LojaSerializer(serializers.ModelSerializer):
             "layout_escolhido",
             "logo_layout",
             "banner_layout",
+            "profile_layout",
             "logo_layout_url",
             "banner_layout_url",
+            "profile_layout_url",
+            "profile_image_url",
         ]
         read_only_fields = ["data_cadastro", "slug"]
 
@@ -75,6 +80,32 @@ class LojaSerializer(serializers.ModelSerializer):
         if getattr(obj, "banner_layout", None):
             url = obj.banner_layout.url
             return request.build_absolute_uri(url) if request else url
+        return None
+
+    def get_profile_layout_url(self, obj):
+        """Retorna a URL da foto do perfil do layout da loja"""
+        request = self.context.get("request")
+        if getattr(obj, "profile_layout", None):
+            url = obj.profile_layout.url
+            return request.build_absolute_uri(url) if request else url
+        return None
+
+    def get_profile_image_url(self, obj):
+        """Retorna a URL da foto do perfil do usuário do influencer"""
+        try:
+            # Busca a foto do perfil do usuário
+            if obj.influencer and obj.influencer.usuario:
+                from perfilusuario.models import PerfilUsuario
+                try:
+                    perfil = PerfilUsuario.objects.get(usuario=obj.influencer.usuario)
+                    if perfil.foto:
+                        request = self.context.get("request")
+                        url = perfil.foto.url
+                        return request.build_absolute_uri(url) if request else url
+                except PerfilUsuario.DoesNotExist:
+                    pass
+        except Exception:
+            pass
         return None
 
     def validate_configuracoes(self, value):
